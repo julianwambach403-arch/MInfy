@@ -1,0 +1,9 @@
+services:
+  minfy:
+    build: .
+    container_name: minfy-server
+    restart: unless-stopped
+    ports:
+      - "7777:7777/udp"
+    volumes:
+      - ./saves:/root/.local/share/godot/app_userdata/MInfy

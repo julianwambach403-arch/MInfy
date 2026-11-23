@@ -1,0 +1,95 @@
+extends RefCounted
+## Alle Spielwerte an einem Ort: Gegner, Quests, Schwerter, Orte.
+
+const VILLAGE := Vector3(0, 0, 0)
+const SPAWN := Vector3(0, 0, 7)
+const MEADOW := Vector3(-8, 0, 48)
+const FOREST := Vector3(58, 0, 0)
+const RUINS := Vector3(4, 0, -66)
+
+const MAX_MANA := 100.0
+const SPELL_COST := 25.0
+const SPELL_SPEED := 16.0
+
+const ENEMY_TYPES := ["slime", "wolf", "golem"]
+
+const ENEMIES := {
+	"slime": {
+		"name": "Schleim", "level": 1, "hp": 30, "dmg": 4, "atk_rate": 1.4,
+		"xp": 12, "gold": 2, "speed": 1.8, "radius": 0.5, "height": 0.85,
+		"aggro": 7.0, "leash": 22.0, "respawn": 12.0,
+	},
+	"wolf": {
+		"name": "Wolf", "level": 3, "hp": 75, "dmg": 9, "atk_rate": 1.1,
+		"xp": 30, "gold": 5, "speed": 4.0, "radius": 0.6, "height": 1.1,
+		"aggro": 11.0, "leash": 28.0, "respawn": 18.0,
+	},
+	"golem": {
+		"name": "Steingolem", "level": 7, "hp": 700, "dmg": 20, "atk_rate": 2.0,
+		"xp": 300, "gold": 80, "speed": 2.0, "radius": 1.3, "height": 3.4,
+		"aggro": 13.0, "leash": 18.0, "respawn": 90.0,
+	},
+}
+
+const SPAWNS := [
+	{"type": "slime", "center": MEADOW, "radius": 16.0, "count": 10},
+	{"type": "wolf", "center": FOREST, "radius": 16.0, "count": 8},
+	{"type": "golem", "center": RUINS, "radius": 0.0, "count": 1},
+]
+
+const QUESTS := [
+	{
+		"title": "Schleimplage",
+		"text": "Schleime fressen unsere Blumen! Besiege 6 Schleime auf der Wiese im Süden.",
+		"target": "slime", "count": 6, "xp": 60, "gold": 20,
+	},
+	{
+		"title": "Das Wolfsrudel",
+		"text": "Im Dunkelwald im Osten heulen die Wölfe. Besiege 5 Wölfe. Lass dir vorher bei Greta ein besseres Schwert schmieden!",
+		"target": "wolf", "count": 5, "xp": 150, "gold": 50,
+	},
+	{
+		"title": "Der Steingolem",
+		"text": "In den alten Ruinen im Norden ist ein Steingolem erwacht. Besiegt ihn gemeinsam! Achtung vor seinem Stampfangriff.",
+		"target": "golem", "count": 1, "xp": 500, "gold": 200,
+	},
+]
+
+const NPCS := {
+	"elder": {"name": "Ältester Bruno", "pos": Vector3(-3.5, 0, -3.0)},
+	"smith": {"name": "Schmiedin Greta", "pos": Vector3(7.5, 0, 1.5)},
+}
+
+const COLORS := [
+	Color(0.2, 0.45, 0.9), Color(0.9, 0.3, 0.55), Color(0.3, 0.75, 0.35),
+	Color(0.95, 0.65, 0.15), Color(0.6, 0.35, 0.85), Color(0.15, 0.75, 0.8),
+]
+const COLOR_NAMES := ["Blau", "Pink", "Grün", "Orange", "Lila", "Türkis"]
+
+const SWORDS := [
+	{"name": "Holzschwert", "color": Color(0.62, 0.44, 0.26), "glow": 0.0, "mult": 1.0, "cost": 0},
+	{"name": "Eisenschwert", "color": Color(0.78, 0.8, 0.85), "glow": 0.0, "mult": 1.35, "cost": 40},
+	{"name": "Goldschwert", "color": Color(1.0, 0.8, 0.25), "glow": 0.3, "mult": 1.8, "cost": 120},
+	{"name": "Kristallschwert", "color": Color(0.4, 0.9, 1.0), "glow": 1.5, "mult": 2.5, "cost": 300},
+]
+
+
+static func xp_needed(level: int) -> int:
+	return int(40.0 * pow(float(level), 1.5))
+
+
+static func max_hp(level: int) -> float:
+	return 80.0 + 20.0 * float(level - 1)
+
+
+static func sword_damage(level: int, tier: int) -> float:
+	var t: Dictionary = SWORDS[clampi(tier, 0, SWORDS.size() - 1)]
+	return (8.0 + 3.0 * float(level - 1)) * float(t["mult"])
+
+
+static func spell_damage(level: int) -> float:
+	return 14.0 + 4.0 * float(level - 1)
+
+
+static func enemy_def(type_name: String) -> Dictionary:
+	return ENEMIES[type_name]
