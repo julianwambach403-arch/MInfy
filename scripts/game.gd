@@ -76,9 +76,9 @@ func req_hit(eid: int, power: float) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func req_cast(o: Vector3, dir: Vector3) -> void:
+func req_cast(skill: int, o: Vector3, dir: Vector3) -> void:
 	if is_server:
-		server.on_cast(_sender(), o, dir)
+		server.on_cast(_sender(), skill, o, dir)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -129,6 +129,12 @@ func fx_damage(pos: Vector3, amount: int, kind: int) -> void:
 func fx(kind: int, pos: Vector3) -> void:
 	if client:
 		client.on_fx(kind, pos)
+
+
+@rpc("authority", "call_remote", "reliable")
+func fx_line(a: Vector3, b: Vector3, kind: int) -> void:
+	if client:
+		client.on_line(a, b, kind)
 
 
 @rpc("authority", "call_remote", "reliable")

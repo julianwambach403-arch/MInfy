@@ -57,6 +57,9 @@ var cast_cd := 0.0
 var swing_cd := 0.0
 var woosh_cd := 0.0
 var time := 0.0
+var skill_idx := 0
+var skill_cds: Dictionary = {}
+var wrist_t := 0.0
 
 
 func _ready() -> void:
@@ -325,7 +328,7 @@ func on_joined(id: int, st: Dictionary) -> void:
 	on_stats(st)
 	_say("Willkommen, %s! Sprich mit Ältestem Bruno am Lagerfeuer." % st["name"])
 	if not vr:
-		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts: Feuerball, E: Sprechen")
+		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts: Fähigkeit, 1-6/Tab: wählen, E: Sprechen")
 
 
 func on_join_failed(reason: String) -> void:
@@ -334,12 +337,42 @@ func on_join_failed(reason: String) -> void:
 
 func on_stats(st: Dictionary) -> void:
 	var old_sword: int = stats.get("sword", -1)
+	var old_level: int = stats.get("level", 0)
 	stats = st
 	if int(st["sword"]) != old_sword:
 		LP.set_sword_tier(sword, int(st["sword"]))
+	if int(st["level"]) != old_level:
+		var sk: Dictionary = D.SKILLS[skill_idx]
+		if int(sk["level"]) > int(st["level"]):
+			skill_idx = 0
+		_update_orb()
+	_refresh_wrist()
+
+
+func _skill_ready_in(i: int) -> float:
+	return maxf(float(skill_cds.get(i, 0.0)), 0.0)
+
+
+func _refresh_wrist() -> void:
+	if stats.is_empty():
+		return
+	var st := stats
 	var t := "%s  -  Level %d\nHP %d/%d    Mana %d/%d\nEP %d/%d    Gold %d\n%s" % [
 		st["name"], st["level"], st["hp"], st["max_hp"], st["mana"], st["max_mana"],
 		st["xp"], st["xp_need"], st["gold"], st["sword_name"]]
+	var sk: Dictionary = D.SKILLS[skill_idx]
+	var wait := _skill_ready_in(skill_idx)
+	var status := "bereit" if wait <= 0.0 else "%.0fs" % ceilf(wait)
+	if float(st["mana"]) < float(sk["mana"]):
+		status = "zu wenig Mana"
+	t += "\nFähigkeit: %s (%d Mana) - %s" % [sk["name"], int(sk["mana"]), status]
+	var unlocked := 0
+	for s2 in D.SKILLS:
+		if int(s2["level"]) <= int(st["level"]):
+			unlocked += 1
+	t += "\n%d/%d Fähigkeiten freigeschaltet" % [unlocked, D.SKILLS.size()]
+	if st.get("shield", false):
+		t += "\nSCHUTZSCHILD AKTIV"
 	if st["quest_done"]:
 		t += "\nAlle Aufgaben erledigt!"
 	elif st["quest_active"]:
@@ -349,7 +382,33 @@ func on_stats(st: Dictionary) -> void:
 	wrist.text = t
 	var hp_ratio := float(st["hp"]) / maxf(float(st["max_hp"]), 1.0)
 	wrist.modulate = Color(1, 1, 1) if hp_ratio > 0.3 else Color(1, 0.5, 0.5)
-	orb.visible = float(st["mana"]) >= D.SPELL_COST
+	orb.visible = float(st["mana"]) >= float(sk["mana"]) and wait <= 0.0
+
+
+func _update_orb() -> void:
+	var sk: Dictionary = D.SKILLS[skill_idx]
+	orb.material_override = LP.mat(sk["color"], 3.0)
+
+
+func _select_skill(dir: int) -> void:
+	var lvl: int = stats.get("level", 1)
+	for i in D.SKILLS.size():
+		skill_idx = wrapi(skill_idx + dir, 0, D.SKILLS.size())
+		if int(D.SKILLS[skill_idx]["level"]) <= lvl:
+			break
+	_choose_skill(skill_idx)
+
+
+func _choose_skill(i: int) -> void:
+	var sk: Dictionary = D.SKILLS[i]
+	if int(sk["level"]) > int(stats.get("level", 1)):
+		_say("%s wird mit Level %d freigeschaltet." % [sk["name"], sk["level"]])
+		return
+	skill_idx = i
+	_update_orb()
+	_refresh_wrist()
+	_say("Fähigkeit: %s - %s" % [sk["name"], sk["desc"]])
+	_haptic(lhand, 0.3, 0.05)
 
 
 func on_snapshot(pl: Array, en: Array) -> void:
@@ -399,6 +458,11 @@ func on_snapshot(pl: Array, en: Array) -> void:
 			lbl.text = "%s  Lv %d\n%d / %d" % [def["name"], def["level"], arr[4], arr[5]]
 			var ratio := float(arr[4]) / maxf(float(arr[5]), 1.0)
 			lbl.modulate = Color(1.0, 0.35, 0.3).lerp(Color(0.6, 1.0, 0.5), ratio)
+		var slowed: bool = arr[7] if arr.size() > 7 else false
+		if slowed != bool(e.get("slowed", false)):
+			e["slowed"] = slowed
+			var lbl2: Label3D = e["label"]
+			lbl2.outline_modulate = Color(0.2, 0.6, 1.0, 0.9) if slowed else Color(0, 0, 0, 0.85)
 
 
 func on_damage(pos: Vector3, amount: int, kind: int) -> void:
@@ -448,6 +512,65 @@ func on_fx(kind: int, pos: Vector3) -> void:
 			_play("upgrade", pos)
 		6:
 			_play("quest", pos)
+		7:
+			LP.burst(fx_root, pos, Color(0.4, 1.0, 0.5), 40, 2.5, 1.2, 1.2)
+			_play("upgrade", pos)
+		8:
+			_ring(pos, Color(0.5, 0.85, 1.0), 5.5)
+			LP.burst(fx_root, pos + Vector3(0, 0.3, 0), Color(0.7, 0.95, 1.0), 50, 6.0, 1.5, 0.9)
+			_play("explode", pos)
+		10:
+			_ring(pos - Vector3(0, 0.9, 0), Color(0.95, 0.95, 0.95), 3.0)
+			LP.burst(fx_root, pos, Color(0.9, 0.9, 1.0), 30, 5.0, 1.0, 0.5)
+			_play("swing", pos)
+		11:
+			LP.burst(fx_root, pos, Color(1.0, 0.85, 0.3), 40, 2.0, 1.2, 1.2)
+			_play("levelup", pos)
+
+
+func _ring(pos: Vector3, color: Color, radius: float) -> void:
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.85
+	tm.outer_radius = 1.0
+	tm.rings = 24
+	tm.ring_segments = 4
+	var mi := MeshInstance3D.new()
+	mi.mesh = tm
+	mi.material_override = LP.mat(color, 2.5)
+	fx_root.add_child(mi)
+	mi.global_position = pos + Vector3(0, 0.15, 0)
+	mi.scale = Vector3(0.3, 1.0, 0.3)
+	var tw := mi.create_tween()
+	tw.tween_property(mi, "scale", Vector3(radius, 1.0, radius), 0.35)
+	tw.tween_property(mi, "scale", Vector3(radius, 0.01, radius), 0.25)
+	tw.tween_callback(mi.queue_free)
+
+
+func on_line(a: Vector3, b: Vector3, _kind: int) -> void:
+	var length := a.distance_to(b)
+	if length < 0.05:
+		return
+	var root := Node3D.new()
+	fx_root.add_child(root)
+	# Gezackter Blitz aus mehreren Segmenten
+	var pts: Array = [a]
+	for i in range(1, 5):
+		var p := a.lerp(b, float(i) / 5.0)
+		pts.append(p + Vector3(randf_range(-0.3, 0.3), randf_range(-0.3, 0.3), randf_range(-0.3, 0.3)))
+	pts.append(b)
+	for i in pts.size() - 1:
+		var p0: Vector3 = pts[i]
+		var p1: Vector3 = pts[i + 1]
+		var seg := LP.box(Vector3(0.05, 0.05, p0.distance_to(p1)), Color(0.8, 0.75, 1.0), Vector3.ZERO, 4.0)
+		root.add_child(seg)
+		seg.global_position = (p0 + p1) / 2.0
+		if absf((p1 - p0).normalized().dot(Vector3.UP)) < 0.99:
+			seg.look_at(p1, Vector3.UP)
+		else:
+			seg.look_at(p1, Vector3.RIGHT)
+	LP.burst(fx_root, b, Color(0.8, 0.75, 1.0), 16, 3.0, 1.0, 0.4)
+	_play("hit", b)
+	get_tree().create_timer(0.25).timeout.connect(root.queue_free)
 
 
 func on_fireball(id: int, o: Vector3, dir: Vector3) -> void:
@@ -511,6 +634,12 @@ func _process(delta: float) -> void:
 	woosh_cd = maxf(woosh_cd - delta, 0.0)
 	for k in hit_cd.keys():
 		hit_cd[k] = float(hit_cd[k]) - delta
+	for k in skill_cds.keys():
+		skill_cds[k] = float(skill_cds[k]) - delta
+	wrist_t -= delta
+	if wrist_t <= 0.0 and state == "playing":
+		wrist_t = 0.25
+		_refresh_wrist()
 	match state:
 		"lobby":
 			_lobby_vr_input()
@@ -651,9 +780,15 @@ func _desktop_swing() -> void:
 
 
 func _cast() -> void:
-	if cast_cd > 0.0 or stats.get("dead", false) or float(stats.get("mana", 0)) < D.SPELL_COST:
+	if stats.is_empty() or stats.get("dead", false):
 		return
-	cast_cd = 0.8
+	var sk: Dictionary = D.SKILLS[skill_idx]
+	if _skill_ready_in(skill_idx) > 0.0 or cast_cd > 0.0:
+		return
+	if float(stats.get("mana", 0)) < float(sk["mana"]):
+		_say("Nicht genug Mana für %s." % sk["name"])
+		return
+	cast_cd = 0.3
 	var o: Vector3
 	var dir: Vector3
 	if vr:
@@ -662,8 +797,12 @@ func _cast() -> void:
 	else:
 		dir = -camera.global_basis.z
 		o = camera.global_position + dir * 0.6 + Vector3(0, -0.15, 0)
-	Game.rpc_id(1, "req_cast", o, dir)
+	Game.rpc_id(1, "req_cast", skill_idx, o, dir)
+	skill_cds[skill_idx] = float(sk["cd"])
 	_haptic(lhand, 0.5, 0.1)
+	if str(sk["id"]) == "whirl" and not vr:
+		var tw := create_tween()
+		tw.tween_property(rhand, "rotation:y", TAU, 0.35).from(0.0)
 
 
 func _interact() -> void:
@@ -686,8 +825,10 @@ func _on_left_button(n: String) -> void:
 	match n:
 		"trigger_click":
 			_cast()
+		"ax_button":
+			_select_skill(1)
 		"by_button":
-			Game.rpc_id(1, "req_recall")
+			_select_skill(-1)
 
 
 func _on_right_button(n: String) -> void:
@@ -734,6 +875,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					Game.rpc_id(1, "req_recall")
 				KEY_Q:
 					_cast()
+				KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6:
+					_choose_skill(int(ke.keycode - KEY_1))
+				KEY_TAB:
+					_select_skill(1)
 	var mb := event as InputEventMouseButton
 	if mb and mb.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -820,8 +965,12 @@ func _make_avatar(color_i: int) -> Dictionary:
 	rh.add_child(sw)
 	var label := LP.label("", 44, 0.003)
 	root.add_child(label)
+	var bubble := LP.sphere(0.85, Color.WHITE, Vector3(0, -0.2, 0), 12)
+	bubble.material_override = LP.unshaded(Color(1.0, 0.85, 0.3, 0.22))
+	bubble.visible = false
+	body.add_child(bubble)
 	return {"root": root, "head": head, "body": body, "lh": lh, "rh": rh, "sword": sw,
-		"label": label, "tier": 0, "t": [], "label_key": ""}
+		"label": label, "tier": 0, "t": [], "label_key": "", "bubble": bubble}
 
 
 func _update_remotes(delta: float) -> void:
@@ -856,6 +1005,8 @@ func _update_remotes(delta: float) -> void:
 			LP.set_sword_tier(a["sword"], int(t[12]))
 		var root_node: Node3D = a["root"]
 		root_node.visible = not bool(t[13])
+		var bubble: MeshInstance3D = a["bubble"]
+		bubble.visible = t.size() > 14 and bool(t[14])
 
 
 func _make_enemy(tname: String) -> Dictionary:

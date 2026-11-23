@@ -11,6 +11,35 @@ const MAX_MANA := 100.0
 const SPELL_COST := 25.0
 const SPELL_SPEED := 16.0
 
+## Fähigkeiten: werden mit dem angegebenen Level freigeschaltet.
+## Auswahl in VR mit X/Y (linke Hand), Auslösen mit dem linken Trigger.
+const SKILLS := [
+	{
+		"id": "fireball", "name": "Feuerball", "level": 1, "mana": 25.0, "cd": 0.8,
+		"color": Color(1.0, 0.5, 0.15), "desc": "Wirft einen Feuerball in Zielrichtung.",
+	},
+	{
+		"id": "heal", "name": "Heilung", "level": 2, "mana": 35.0, "cd": 8.0,
+		"color": Color(0.4, 1.0, 0.5), "desc": "Heilt dich und alle Mitspieler in 6 m Umkreis.",
+	},
+	{
+		"id": "frost", "name": "Frostnova", "level": 3, "mana": 30.0, "cd": 10.0,
+		"color": Color(0.5, 0.85, 1.0), "desc": "Eiswelle um dich herum: Schaden und Verlangsamung.",
+	},
+	{
+		"id": "whirl", "name": "Wirbelwind", "level": 4, "mana": 20.0, "cd": 7.0,
+		"color": Color(0.95, 0.95, 0.95), "desc": "Schwert-Rundumschlag gegen alle Gegner in der Nähe.",
+	},
+	{
+		"id": "lightning", "name": "Kettenblitz", "level": 5, "mana": 40.0, "cd": 6.0,
+		"color": Color(0.75, 0.65, 1.0), "desc": "Blitz springt auf bis zu 3 Gegner über.",
+	},
+	{
+		"id": "shield", "name": "Schutzschild", "level": 6, "mana": 30.0, "cd": 20.0,
+		"color": Color(1.0, 0.85, 0.3), "desc": "Halbiert 6 Sekunden lang jeden Schaden.",
+	},
+]
+
 const ENEMY_TYPES := ["slime", "wolf", "golem"]
 
 const ENEMIES := {
@@ -93,3 +122,7 @@ static func spell_damage(level: int) -> float:
 
 static func enemy_def(type_name: String) -> Dictionary:
 	return ENEMIES[type_name]
+
+
+static func heal_amount(level: int) -> float:
+	return 30.0 + 8.0 * float(level - 1)

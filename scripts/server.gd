@@ -70,7 +70,7 @@ func _create_enemy(t: String, center: Vector3, radius: float) -> void:
 		"home": pos, "pos": pos, "yaw": rng.randf() * TAU,
 		"hp": int(def["hp"]), "maxhp": int(def["hp"]), "alive": true, "respawn": 0.0,
 		"target": 0, "atk_cd": 0.0, "special_cd": 6.0, "wander": pos, "wander_t": 0.0,
-		"returning": false, "attackers": {},
+		"returning": false, "attackers": {}, "slow_t": 0.0,
 	}
 	next_enemy_id += 1
 
@@ -85,6 +85,7 @@ func _respawn_enemy(e: Dictionary) -> void:
 	e["returning"] = false
 	e["target"] = 0
 	e["attackers"] = {}
+	e["slow_t"] = 0.0
 
 
 func _move_toward(e: Dictionary, pos: Vector3, target: Vector3, speed: float, delta: float) -> Vector3:
@@ -114,6 +115,9 @@ func _tick_enemies(delta: float) -> void:
 		e["special_cd"] = float(e["special_cd"]) - delta
 		var aggro: float = def["aggro"]
 		var speed: float = def["speed"]
+		if float(e["slow_t"]) > 0.0:
+			e["slow_t"] = float(e["slow_t"]) - delta
+			speed *= 0.4
 		var tid: int = e["target"]
 		if tid != 0:
 			var tp = _player(tid)
@@ -294,7 +298,7 @@ func join(pid: int, pname: String, color: int) -> void:
 		"lh": sp + Vector3(-0.3, 1.1, 0), "lh_q": Quaternion(),
 		"rh": sp + Vector3(0.3, 1.1, 0), "rh_q": Quaternion(),
 		"pos": sp, "last_swing": 0.0, "last_cast": 0.0, "last_hurt": -100.0,
-		"last_recall": -100.0, "dirty": true,
+		"last_recall": -100.0, "dirty": true, "cds": {}, "shield_t": 0.0,
 	}
 	var path := _save_path(pname)
 	if FileAccess.file_exists(path):
@@ -332,7 +336,7 @@ func _stats(p: Dictionary) -> Dictionary:
 		"mana": int(p["mana"]), "max_mana": int(D.MAX_MANA), "sword": p["sword"],
 		"sword_name": sw["name"], "quest_title": "", "quest_progress": p["quest_progress"],
 		"quest_count": 0, "quest_active": p["quest_active"], "quest_done": qi >= D.QUESTS.size(),
-		"dead": p["dead"],
+		"dead": p["dead"], "shield": float(p["shield_t"]) > 0.0,
 	}
 	if qi < D.QUESTS.size():
 		var q: Dictionary = D.QUESTS[qi]
@@ -374,22 +378,134 @@ func on_hit(pid: int, eid: int, power: float) -> void:
 	_damage_enemy(e, roundi(dmg * rng.randf_range(0.9, 1.1)), pid)
 
 
-func on_cast(pid: int, o: Vector3, dir: Vector3) -> void:
+func on_cast(pid: int, skill: int, o: Vector3, dir: Vector3) -> void:
 	var p = _player(pid)
-	if p == null or p["dead"] or not o.is_finite() or not dir.is_finite() or dir.length() < 0.1:
+	if p == null or p["dead"] or skill < 0 or skill >= D.SKILLS.size():
+		return
+	if not o.is_finite() or not dir.is_finite() or dir.length() < 0.1:
 		return
 	if o.distance_to(p["head"]) > 1.8:
 		return
-	var now := _now()
-	if now - float(p["last_cast"]) < 0.7 or float(p["mana"]) < D.SPELL_COST:
+	var sk: Dictionary = D.SKILLS[skill]
+	var lvl: int = p["level"]
+	if lvl < int(sk["level"]):
+		Game.rpc_id(pid, "msg", "%s lernst du erst mit Level %d." % [sk["name"], sk["level"]])
 		return
-	p["last_cast"] = now
-	p["mana"] = float(p["mana"]) - D.SPELL_COST
+	var now := _now()
+	var cds: Dictionary = p["cds"]
+	if now < float(cds.get(skill, 0.0)) or float(p["mana"]) < float(sk["mana"]):
+		return
+	dir = dir.normalized()
+	var used := true
+	match str(sk["id"]):
+		"fireball":
+			var id := next_proj_id
+			next_proj_id += 1
+			projectiles[id] = {"pos": o, "dir": dir, "owner": pid, "life": 3.0}
+			Game.rpc("fx_fireball", id, o, dir)
+		"heal":
+			_skill_heal(p)
+		"frost":
+			_skill_frost(pid, p)
+		"whirl":
+			_skill_whirl(pid, p)
+		"lightning":
+			used = _skill_lightning(pid, p, dir)
+		"shield":
+			p["shield_t"] = 6.0
+			Game.rpc("fx", 11, p["head"])
+	if not used:
+		Game.rpc_id(pid, "msg", "Kein Ziel in Sicht.")
+		return
+	p["mana"] = float(p["mana"]) - float(sk["mana"])
+	cds[skill] = now + float(sk["cd"])
 	p["dirty"] = true
-	var id := next_proj_id
-	next_proj_id += 1
-	projectiles[id] = {"pos": o, "dir": dir.normalized(), "owner": pid, "life": 3.0}
-	Game.rpc("fx_fireball", id, o, dir.normalized())
+
+
+func _skill_heal(p: Dictionary) -> void:
+	var amount := D.heal_amount(int(p["level"]))
+	Game.rpc("fx", 7, p["head"])
+	for pid in players:
+		var other = _player(pid)
+		if other == null or other["dead"] or _flat(other["pos"], p["pos"]) > 6.0:
+			continue
+		var mh := D.max_hp(int(other["level"]))
+		var healed := minf(mh, float(other["hp"]) + amount) - float(other["hp"])
+		other["hp"] = float(other["hp"]) + healed
+		other["dirty"] = true
+		var head: Vector3 = other["head"]
+		Game.rpc("fx_damage", head + Vector3(0, 0.35, 0), roundi(healed), 2)
+
+
+func _enemy_center(e: Dictionary) -> Vector3:
+	var def: Dictionary = D.ENEMIES[e["type"]]
+	var pos: Vector3 = e["pos"]
+	return pos + Vector3.UP * float(def["height"]) * 0.6
+
+
+func _skill_frost(pid: int, p: Dictionary) -> void:
+	var pos: Vector3 = p["pos"]
+	Game.rpc("fx", 8, pos)
+	var dmg := D.spell_damage(int(p["level"])) * 0.7
+	for e in enemies.values():
+		if not e["alive"]:
+			continue
+		var def: Dictionary = D.ENEMIES[e["type"]]
+		if _flat(e["pos"], pos) < 5.5 + float(def["radius"]):
+			e["slow_t"] = 4.0
+			_damage_enemy(e, roundi(dmg * rng.randf_range(0.9, 1.1)), pid)
+
+
+func _skill_whirl(pid: int, p: Dictionary) -> void:
+	var pos: Vector3 = p["pos"]
+	Game.rpc("fx", 10, pos + Vector3(0, 1.0, 0))
+	var dmg := D.sword_damage(int(p["level"]), int(p["sword"])) * 1.3
+	for e in enemies.values():
+		if not e["alive"]:
+			continue
+		var def: Dictionary = D.ENEMIES[e["type"]]
+		if _flat(e["pos"], pos) < 2.8 + float(def["radius"]):
+			_damage_enemy(e, roundi(dmg * rng.randf_range(0.9, 1.1)), pid)
+
+
+func _skill_lightning(pid: int, p: Dictionary, dir: Vector3) -> bool:
+	var head: Vector3 = p["head"]
+	var first = null
+	var best := 16.0
+	for e in enemies.values():
+		if not e["alive"]:
+			continue
+		var to := _enemy_center(e) - head
+		var d := to.length()
+		if d < best and dir.dot(to / maxf(d, 0.01)) > 0.85:
+			best = d
+			first = e
+	if first == null:
+		return false
+	var dmg := D.spell_damage(int(p["level"])) * 1.3
+	var hit: Array = []
+	var cur: Dictionary = first
+	var from := head
+	for jump in 3:
+		var c := _enemy_center(cur)
+		Game.rpc("fx_line", from, c, 0)
+		hit.append(cur)
+		_damage_enemy(cur, roundi(dmg * rng.randf_range(0.9, 1.1)), pid)
+		dmg *= 0.75
+		from = c
+		var nxt = null
+		var nbest := 7.0
+		for e in enemies.values():
+			if not e["alive"] or hit.has(e):
+				continue
+			var d := _enemy_center(e).distance_to(c)
+			if d < nbest:
+				nbest = d
+				nxt = e
+		if nxt == null:
+			break
+		cur = nxt
+	return true
 
 
 func on_interact(pid: int, npc: String) -> void:
@@ -468,6 +584,7 @@ func on_recall(pid: int) -> void:
 
 func _add_xp(pid: int, p: Dictionary, amount: int) -> void:
 	p["xp"] = int(p["xp"]) + amount
+	var old_level: int = p["level"]
 	var leveled := false
 	while int(p["xp"]) >= D.xp_needed(int(p["level"])):
 		p["xp"] = int(p["xp"]) - D.xp_needed(int(p["level"]))
@@ -477,6 +594,10 @@ func _add_xp(pid: int, p: Dictionary, amount: int) -> void:
 		p["hp"] = D.max_hp(int(p["level"]))
 		Game.rpc("fx", 2, p["head"])
 		Game.rpc("msg", "%s hat Level %d erreicht!" % [p["name"], p["level"]])
+		for sk in D.SKILLS:
+			if int(sk["level"]) > old_level and int(sk["level"]) <= int(p["level"]):
+				Game.rpc_id(pid, "msg", "Neue Fähigkeit: %s! %s" % [sk["name"], sk["desc"]])
+				Game.rpc_id(pid, "fx", 6, p["head"])
 		_save(p)
 	p["dirty"] = true
 
@@ -484,6 +605,8 @@ func _add_xp(pid: int, p: Dictionary, amount: int) -> void:
 func _damage_player(pid: int, p: Dictionary, amount: float) -> void:
 	if p["dead"]:
 		return
+	if float(p["shield_t"]) > 0.0:
+		amount *= 0.5
 	var dmg := roundi(amount)
 	p["hp"] = float(p["hp"]) - dmg
 	p["last_hurt"] = _now()
@@ -522,6 +645,10 @@ func _tick_players(delta: float) -> void:
 				p["head"] = sp + Vector3(0, 1.6, 0)
 				Game.rpc_id(pid, "teleport", sp)
 			continue
+		if float(p["shield_t"]) > 0.0:
+			p["shield_t"] = float(p["shield_t"]) - delta
+			if float(p["shield_t"]) <= 0.0:
+				p["dirty"] = true
 		var mh := D.max_hp(int(p["level"]))
 		var regen := 0.0
 		if now - float(p["last_hurt"]) > 6.0:
@@ -546,10 +673,12 @@ func _broadcast() -> void:
 			continue
 		var lvl: int = p["level"]
 		pl.append([pid, p["name"], p["color"], p["head"], p["head_q"], p["lh"], p["lh_q"],
-			p["rh"], p["rh_q"], int(ceilf(float(p["hp"]))), int(D.max_hp(lvl)), lvl, p["sword"], p["dead"]])
+			p["rh"], p["rh_q"], int(ceilf(float(p["hp"]))), int(D.max_hp(lvl)), lvl, p["sword"], p["dead"],
+			float(p["shield_t"]) > 0.0])
 	var en: Array = []
 	for e in enemies.values():
-		en.append([e["id"], D.ENEMY_TYPES.find(e["type"]), e["pos"], e["yaw"], e["hp"], e["maxhp"], e["alive"]])
+		en.append([e["id"], D.ENEMY_TYPES.find(e["type"]), e["pos"], e["yaw"], e["hp"], e["maxhp"], e["alive"],
+			float(e["slow_t"]) > 0.0])
 	Game.rpc("snapshot", pl, en)
 
 

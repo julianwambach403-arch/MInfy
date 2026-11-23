@@ -29,6 +29,25 @@ Euer Fortschritt wird auf **deinem eigenen Server** gespeichert.
 - Erfahrung und Beute bekommen **alle**, die einen Gegner getroffen haben, also ideal zu zweit.
 - Wer besiegt wird, wacht im Dorf auf und verliert 10 % seines Golds.
 
+## Fähigkeiten
+
+Mit jedem Level schaltest du eine neue Fähigkeit frei. Sie kosten Mana und haben eine
+Abklingzeit. Die gewählte Fähigkeit und ihr Status stehen am linken Handgelenk, und die
+leuchtende Kugel in der linken Hand zeigt ihre Farbe. Leuchtet die Kugel, ist die Fähigkeit bereit.
+
+| Level | Fähigkeit | Mana | Abklingzeit | Wirkung |
+|---|---|---|---|---|
+| 1 | Feuerball | 25 | 0,8 s | Geschoss in Zielrichtung der linken Hand |
+| 2 | Heilung | 35 | 8 s | Heilt dich **und** Mitspieler im Umkreis von 6 m |
+| 3 | Frostnova | 30 | 10 s | Eiswelle: Schaden ringsum, Gegner 4 s lang stark verlangsamt |
+| 4 | Wirbelwind | 20 | 7 s | Rundumschlag mit dem Schwert gegen alle nahen Gegner |
+| 5 | Kettenblitz | 40 | 6 s | Blitz auf das anvisierte Ziel, springt auf bis zu 2 weitere über |
+| 6 | Schutzschild | 30 | 20 s | 6 s lang halber Schaden (andere sehen eine goldene Kugel um dich) |
+
+Zu zweit lohnt sich die Aufteilung: Eine Person verlangsamt mit Frostnova und schützt sich mit dem
+Schild, die andere heilt und teilt mit Kettenblitz aus. Werte und neue Fähigkeiten stehen in
+`scripts/game_data.gd` unter `SKILLS`, die Wirkung in `scripts/server.gd` unter `on_cast`.
+
 ## Steuerung
 
 **Meta Quest 3**
@@ -38,16 +57,17 @@ Euer Fortschritt wird auf **deinem eigenen Server** gespeichert.
 | Linker Stick | Laufen (Stick drücken = Sprinten) |
 | Rechter Stick links/rechts | Drehen in 30°-Schritten |
 | **Schwert schwingen** (rechte Hand) | Angreifen: je schneller, desto mehr Schaden |
-| Linker Trigger | Feuerball aus der linken Hand (kostet 25 Mana) |
+| Linker Trigger | Gewählte Fähigkeit wirken (aus der linken Hand) |
+| X / Y (links) | Nächste / vorherige Fähigkeit wählen |
 | A (rechts) | Mit Figuren sprechen |
-| B (rechts) oder Y (links) | Heimkehr ins Dorf (alle 20 s) |
+| B (rechts) | Heimkehr ins Dorf (alle 20 s) |
 | Linkes Handgelenk | Anzeige für Lebenspunkte, Mana, Erfahrung, Gold und Aufgabe |
 
 **Startmenü in VR:** Rechter Stick hoch/runter wählt die Zeile, links/rechts ändert Name, Farbe
 oder Server. Mit **A** verbindest du dich.
 
 **Am PC ohne Brille (zum Testen):** WASD laufen, Maus schauen, Linksklick Schwert,
-Rechtsklick oder Q Feuerball, E sprechen, R Heimkehr, Shift sprinten.
+Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, E sprechen, R Heimkehr, Shift sprinten.
 
 ---
 
