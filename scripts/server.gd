@@ -210,6 +210,7 @@ func _kill_enemy(e: Dictionary, center: Vector3) -> void:
 		p["gold"] = int(p["gold"]) + int(def["gold"])
 		_count(p, "kills_total")
 		_count(p, "kills_" + str(e["type"]))
+		_roll_loot(apid, p, def)
 		Game.rpc_id(apid, "fx", 4, center)
 		_add_xp(apid, p, int(def["xp"]))
 		var qi := int(p["quest_idx"])
@@ -261,6 +262,7 @@ func on_peer_connected(pid: int) -> void:
 func on_peer_disconnected(pid: int) -> void:
 	var p = players.get(pid)
 	if p != null and p.get("joined", false):
+		_forge_refund(p)
 		_save(p)
 		print("[Server] %s hat das Spiel verlassen." % p["name"])
 		Game.rpc("msg", "%s hat die Welt verlassen." % p["name"])
@@ -304,6 +306,7 @@ func join(pid: int, pname: String, color: int) -> void:
 		"pos": sp, "last_swing": 0.0, "last_cast": 0.0, "last_hurt": -100.0,
 		"last_recall": -100.0, "dirty": true, "cds": {}, "shield_t": 0.0,
 		"record": {}, "achievements": [], "custom": [],
+		"weapon_type": 0, "quality": 0.5, "ores": {"iron": 0, "gold": 0, "crystal": 0}, "forge": null,
 	}
 	var path := _save_path(pname)
 	if FileAccess.file_exists(path):
@@ -320,6 +323,12 @@ func join(pid: int, pname: String, color: int) -> void:
 			if achs is Array:
 				for a in achs:
 					p["achievements"].append(str(a))
+			p["weapon_type"] = clampi(int(data.get("weapon_type", 0)), 0, D.WEAPON_TYPES.size() - 1)
+			p["quality"] = clampf(float(data.get("quality", 0.5)), 0.0, 1.0)
+			var ores = data.get("ores", {})
+			if ores is Dictionary:
+				for k in D.ORES:
+					p["ores"][k] = int(ores.get(k, 0))
 			p["hp"] = D.max_hp(int(p["level"]))
 	players[pid] = p
 	_load_custom_skills(p)
@@ -337,7 +346,7 @@ func join(pid: int, pname: String, color: int) -> void:
 func _save(p: Dictionary) -> void:
 	var data := {}
 	for key in ["name", "level", "xp", "gold", "sword", "quest_idx", "quest_active", "quest_progress",
-			"record", "achievements"]:
+			"record", "achievements", "weapon_type", "quality", "ores"]:
 		data[key] = p[key]
 	var f := FileAccess.open(_save_path(p["name"]), FileAccess.WRITE)
 	if f:
@@ -348,12 +357,13 @@ func _save(p: Dictionary) -> void:
 func _stats(p: Dictionary) -> Dictionary:
 	var lvl: int = p["level"]
 	var qi: int = p["quest_idx"]
-	var sw: Dictionary = D.SWORDS[int(p["sword"])]
 	var d := {
 		"name": p["name"], "level": lvl, "xp": p["xp"], "xp_need": D.xp_needed(lvl),
 		"gold": p["gold"], "hp": int(ceilf(float(p["hp"]))), "max_hp": int(D.max_hp(lvl)),
 		"mana": int(p["mana"]), "max_mana": int(D.MAX_MANA), "sword": p["sword"],
-		"sword_name": sw["name"], "quest_title": "", "quest_progress": p["quest_progress"],
+		"sword_name": D.weapon_name(int(p["weapon_type"]), int(p["sword"]), float(p["quality"])),
+		"weapon_type": p["weapon_type"], "quality": p["quality"], "ores": p["ores"],
+		"quest_title": "", "quest_progress": p["quest_progress"],
 		"quest_count": 0, "quest_active": p["quest_active"], "quest_done": qi >= D.QUESTS.size(),
 		"dead": p["dead"], "shield": float(p["shield_t"]) > 0.0,
 		"achievements": (p["achievements"] as Array).size(), "achievements_total": D.ACHIEVEMENTS.size(),
@@ -402,8 +412,18 @@ func on_hit(pid: int, eid: int, power: float) -> void:
 		return
 	p["last_swing"] = now
 	_count(p, "sword_hits")
-	var dmg := D.sword_damage(int(p["level"]), int(p["sword"])) * clampf(power, 0.6, 1.6)
+	var wtype: int = p["weapon_type"]
+	var dmg := D.weapon_damage(int(p["level"]), int(p["sword"]), wtype, float(p["quality"])) * clampf(power, 0.6, 1.6)
 	_damage_enemy(e, roundi(dmg * rng.randf_range(0.9, 1.1)), pid)
+	var kb: float = D.WEAPON_TYPES[wtype]["knockback"]
+	if kb > 0.0 and e["alive"] and e["type"] != "golem":
+		var from: Vector3 = p["pos"]
+		var epos: Vector3 = e["pos"]
+		var dirv := Vector3(epos.x - from.x, 0, epos.z - from.z)
+		if dirv.length() > 0.01:
+			var target := epos + dirv.normalized() * kb
+			if WG.height(target.x, target.z) > -0.4:
+				e["pos"] = _ground(target)
 
 
 func on_cast(pid: int, skill: int, o: Vector3, dir: Vector3) -> void:
@@ -737,22 +757,98 @@ func _talk_elder(pid: int, p: Dictionary) -> void:
 
 
 func _talk_smith(pid: int, p: Dictionary) -> void:
-	var tier: int = p["sword"]
 	var text := ""
-	if tier >= D.SWORDS.size() - 1:
-		text = "Dein Kristallschwert ist das Beste, was meine Esse hergibt!"
+	var price: int = D.ORE_PRICE
+	if int(p["gold"]) >= price:
+		p["gold"] = int(p["gold"]) - price
+		p["ores"]["iron"] = int(p["ores"]["iron"]) + 1
+		text = "Hier, 1 Eisenerz für %d Gold (du hast jetzt %d). Schmieden musst du aber selbst: " % [
+			price, p["ores"]["iron"]]
+		Game.rpc_id(pid, "fx", 4, p["head"])
 	else:
-		var nxt: Dictionary = D.SWORDS[tier + 1]
-		var cost: int = nxt["cost"]
-		if int(p["gold"]) >= cost:
-			p["gold"] = int(p["gold"]) - cost
-			p["sword"] = tier + 1
-			text = "Frisch geschmiedet: dein %s! (%d Gold)" % [nxt["name"], cost]
-			Game.rpc("fx", 5, p["rh"])
-			_save(p)
-		else:
-			text = "Ein %s kostet %d Gold. Du hast %d Gold. Komm wieder, wenn du mehr hast!" % [nxt["name"], cost, p["gold"]]
+		text = "Eisenerz kostet %d Gold, du hast nur %d. Erz findest du auch bei Wölfen und dem Golem! " % [
+			price, p["gold"]]
+	text += "Wähle am Bedienfeld neben mir Waffe und Material, erhitze den Rohling in der Glut, " \
+		+ "hämmere ihn auf dem Amboss in Form und schrecke ihn im Wasserfass ab."
+	p["dirty"] = true
 	Game.rpc_id(pid, "dialog", "smith", text)
+
+
+func _roll_loot(pid: int, p: Dictionary, def: Dictionary) -> void:
+	for entry in def.get("loot", []):
+		if rng.randf() < float(entry[1]):
+			var ore: String = entry[0]
+			var n: int = entry[2]
+			p["ores"][ore] = int(p["ores"].get(ore, 0)) + n
+			Game.rpc_id(pid, "msg", "+%d %s" % [n, D.ORES[ore]])
+
+
+func _forge_refund(p: Dictionary) -> void:
+	var f = p["forge"]
+	if f == null:
+		return
+	var recipe: Dictionary = D.RECIPES[int(f["mat"])]
+	for k in recipe:
+		p["ores"][k] = int(p["ores"][k]) + int(recipe[k])
+	p["forge"] = null
+	p["dirty"] = true
+
+
+func on_forge_start(pid: int, wtype: int, mat: int) -> void:
+	var p = _player(pid)
+	if p == null or p["dead"]:
+		return
+	if _flat(p["pos"], D.FORGE) > 5.0:
+		Game.rpc_id(pid, "msg", "Du musst an der Schmiede stehen.")
+		return
+	if p["forge"] != null:
+		_forge_refund(p)
+	if wtype < 0 or wtype >= D.WEAPON_TYPES.size() or mat < 1 or mat >= D.RECIPES.size():
+		return
+	var recipe: Dictionary = D.RECIPES[mat]
+	for k in recipe:
+		if int(p["ores"].get(k, 0)) < int(recipe[k]):
+			Game.rpc_id(pid, "msg", "Dir fehlt Erz. Rezept: %s" % D.recipe_text(mat))
+			Game.rpc_id(pid, "dialog", "smith", "Für %s brauchst du %s. Sprich mich an, ich verkaufe Eisenerz!" % [
+				D.MATERIALS[mat], D.recipe_text(mat)])
+			return
+	for k in recipe:
+		p["ores"][k] = int(p["ores"][k]) - int(recipe[k])
+	p["forge"] = {"type": wtype, "mat": mat, "t": _now()}
+	p["dirty"] = true
+	Game.rpc_id(pid, "forge_started", wtype, mat)
+
+
+func on_forge_finish(pid: int, strikes: int, quality: float) -> void:
+	var p = _player(pid)
+	if p == null or p["forge"] == null:
+		return
+	var f: Dictionary = p["forge"]
+	# Plausibilität: echtes Schmieden dauert und braucht genug Schläge
+	if _now() - float(f["t"]) < 12.0 or strikes < 6 or not is_finite(quality):
+		Game.rpc_id(pid, "msg", "Das ging zu schnell. Die Klinge ist zersprungen!")
+		p["forge"] = null
+		p["dirty"] = true
+		return
+	quality = clampf(quality, 0.0, 1.0)
+	p["forge"] = null
+	p["sword"] = int(f["mat"])
+	p["weapon_type"] = int(f["type"])
+	p["quality"] = quality
+	p["dirty"] = true
+	_count(p, "forged")
+	if quality >= 0.85:
+		_count(p, "masterwork")
+	var wname := D.weapon_name(int(f["type"]), int(f["mat"]), quality)
+	Game.rpc("fx", 5, p["rh"])
+	Game.rpc("msg", "%s hat geschmiedet: %s (Qualität %d %%)" % [p["name"], wname, roundi(quality * 100.0)])
+	_save(p)
+
+
+func on_forge_cancel(pid: int) -> void:
+	var p = _player(pid)
+	if p != null:
+		_forge_refund(p)
 
 
 func on_recall(pid: int) -> void:
@@ -862,7 +958,7 @@ func _broadcast() -> void:
 		var lvl: int = p["level"]
 		pl.append([pid, p["name"], p["color"], p["head"], p["head_q"], p["lh"], p["lh_q"],
 			p["rh"], p["rh_q"], int(ceilf(float(p["hp"]))), int(D.max_hp(lvl)), lvl, p["sword"], p["dead"],
-			float(p["shield_t"]) > 0.0])
+			float(p["shield_t"]) > 0.0, p["weapon_type"]])
 	var en: Array = []
 	for e in enemies.values():
 		en.append([e["id"], D.ENEMY_TYPES.find(e["type"]), e["pos"], e["yaw"], e["hp"], e["maxhp"], e["alive"],

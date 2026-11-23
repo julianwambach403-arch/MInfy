@@ -6,6 +6,8 @@ const SPAWN := Vector3(0, 0, 7)
 const MEADOW := Vector3(-8, 0, 48)
 const FOREST := Vector3(58, 0, 0)
 const RUINS := Vector3(4, 0, -66)
+## Gretas Schmiede mit Esse, Amboss und Wasserfass (zum Selberschmieden)
+const FORGE := Vector3(9.2, 0, -0.6)
 
 const MAX_MANA := 100.0
 const SPELL_COST := 25.0
@@ -55,7 +57,9 @@ const ACHIEVEMENTS := [
 	{"id": "lifesaver", "name": "Lebensretter", "desc": "Heile insgesamt 1000 Lebenspunkte.", "stat": "healed", "goal": 1000},
 	{"id": "phoenix", "name": "Stehaufmännchen", "desc": "Werde 5-mal besiegt und steh wieder auf.", "stat": "deaths", "goal": 5},
 	{"id": "goldhoarder", "name": "Goldhamster", "desc": "Besitze 500 Gold auf einmal.", "stat": "gold", "goal": 500},
-	{"id": "crystal_blade", "name": "Kristallklinge", "desc": "Lass dir das Kristallschwert schmieden.", "stat": "sword", "goal": 3},
+	{"id": "crystal_blade", "name": "Kristallklinge", "desc": "Schmiede eine Waffe aus Kristall.", "stat": "sword", "goal": 3},
+	{"id": "first_forge", "name": "Lehrling der Esse", "desc": "Schmiede deine erste eigene Waffe.", "stat": "forged", "goal": 1},
+	{"id": "master_smith", "name": "Meisterschmied", "desc": "Schmiede eine meisterhafte Waffe (Qualität 85 %+).", "stat": "masterwork", "goal": 1},
 ]
 
 ## Eigene Fähigkeiten haben Nummern ab CUSTOM_BASE (100, 101, ...).
@@ -68,16 +72,19 @@ const ENEMIES := {
 		"name": "Schleim", "level": 1, "hp": 30, "dmg": 4, "atk_rate": 1.4,
 		"xp": 12, "gold": 2, "speed": 1.8, "radius": 0.5, "height": 0.85,
 		"aggro": 7.0, "leash": 22.0, "respawn": 12.0,
+		"loot": [["iron", 0.3, 1]],
 	},
 	"wolf": {
 		"name": "Wolf", "level": 3, "hp": 75, "dmg": 9, "atk_rate": 1.1,
 		"xp": 30, "gold": 5, "speed": 4.0, "radius": 0.6, "height": 1.1,
 		"aggro": 11.0, "leash": 28.0, "respawn": 18.0,
+		"loot": [["iron", 0.6, 1], ["gold", 0.15, 1]],
 	},
 	"golem": {
 		"name": "Steingolem", "level": 7, "hp": 700, "dmg": 20, "atk_rate": 2.0,
 		"xp": 300, "gold": 80, "speed": 2.0, "radius": 1.3, "height": 3.4,
 		"aggro": 13.0, "leash": 18.0, "respawn": 90.0,
+		"loot": [["gold", 1.0, 3], ["crystal", 1.0, 2]],
 	},
 }
 
@@ -116,6 +123,27 @@ const COLORS := [
 ]
 const COLOR_NAMES := ["Blau", "Pink", "Grün", "Orange", "Lila", "Türkis"]
 
+## ---------------- Schmieden ----------------
+const ORES := {"iron": "Eisenerz", "gold": "Golderz", "crystal": "Kristall"}
+const ORE_PRICE := 15  # Greta verkauft Eisenerz für so viel Gold
+
+## Waffentypen: Schaden-Multiplikator, Rückstoß, Grammatik für den Namen
+const WEAPON_TYPES := [
+	{"name": "Schwert", "suffix": "schwert", "ending": "es", "mult": 1.0, "knockback": 0.0},
+	{"name": "Axt", "suffix": "axt", "ending": "e", "mult": 1.25, "knockback": 0.0},
+	{"name": "Streitkolben", "suffix": "streitkolben", "ending": "er", "mult": 1.1, "knockback": 1.5},
+]
+const MATERIALS := ["Holz", "Eisen", "Gold", "Kristall"]
+
+## Rezepte je Material (Index wie MATERIALS / SWORDS)
+const RECIPES := [
+	{},
+	{"iron": 3},
+	{"iron": 2, "gold": 4},
+	{"gold": 3, "crystal": 3},
+]
+
+## Material-Stufen (Index 0..3). "mult" = Grundschaden, "color" = Klingenfarbe.
 const SWORDS := [
 	{"name": "Holzschwert", "color": Color(0.62, 0.44, 0.26), "glow": 0.0, "mult": 1.0, "cost": 0},
 	{"name": "Eisenschwert", "color": Color(0.78, 0.8, 0.85), "glow": 0.0, "mult": 1.35, "cost": 40},
@@ -147,3 +175,34 @@ static func enemy_def(type_name: String) -> Dictionary:
 
 static func heal_amount(level: int) -> float:
 	return 30.0 + 8.0 * float(level - 1)
+
+
+static func recipe_text(mat: int) -> String:
+	var r: Dictionary = RECIPES[clampi(mat, 0, RECIPES.size() - 1)]
+	var parts: Array = []
+	for k in r:
+		parts.append("%d %s" % [r[k], ORES[k]])
+	return ", ".join(PackedStringArray(parts)) if not parts.is_empty() else "nichts"
+
+
+## Qualität 0..1 -> Schaden x0.8 .. x1.2
+static func quality_mult(q: float) -> float:
+	return 0.8 + 0.4 * clampf(q, 0.0, 1.0)
+
+
+static func weapon_damage(level: int, tier: int, wtype: int, q: float) -> float:
+	var wt: Dictionary = WEAPON_TYPES[clampi(wtype, 0, WEAPON_TYPES.size() - 1)]
+	return sword_damage(level, tier) * float(wt["mult"]) * quality_mult(q)
+
+
+static func weapon_name(wtype: int, tier: int, q: float) -> String:
+	var wt: Dictionary = WEAPON_TYPES[clampi(wtype, 0, WEAPON_TYPES.size() - 1)]
+	var n: String = MATERIALS[clampi(tier, 0, MATERIALS.size() - 1)] + str(wt["suffix"])
+	var e: String = wt["ending"]
+	if q >= 0.85:
+		return "Meisterhaft%s %s" % [e, n]
+	if q >= 0.65:
+		return "Gut%s %s" % [e, n]
+	if q < 0.35:
+		return "Grob%s %s" % [e, n]
+	return n

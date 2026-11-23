@@ -87,6 +87,30 @@ func req_cast(skill: int, o: Vector3, dir: Vector3) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
+func req_forge_start(wtype: int, mat: int) -> void:
+	if is_server:
+		server.on_forge_start(_sender(), wtype, mat)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_forge_finish(strikes: int, quality: float) -> void:
+	if is_server:
+		server.on_forge_finish(_sender(), strikes, quality)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_forge_cancel() -> void:
+	if is_server:
+		server.on_forge_cancel(_sender())
+
+
+@rpc("authority", "call_remote", "reliable")
+func forge_started(wtype: int, mat: int) -> void:
+	if client:
+		client.on_forge_started(wtype, mat)
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func req_interact(npc: String) -> void:
 	if is_server:
 		server.on_interact(_sender(), npc)

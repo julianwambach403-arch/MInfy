@@ -114,6 +114,38 @@ static func make_sword(tier: int) -> Node3D:
 	return s
 
 
+## Waffe nach Typ (0 Schwert, 1 Axt, 2 Streitkolben). Kind "Blade" trägt die Materialfarbe,
+## Kind "Tip" markiert die Spitze für die Treffererkennung.
+static func make_weapon(wtype: int, tier: int) -> Node3D:
+	var w: Node3D
+	var tip := Node3D.new()
+	tip.name = "Tip"
+	match wtype:
+		1:
+			w = Node3D.new()
+			w.add_child(box(Vector3(0.035, 0.035, 0.7), Color(0.45, 0.3, 0.18), Vector3(0, 0, -0.27)))
+			var head := box(Vector3(0.025, 0.2, 0.16), Color.WHITE, Vector3(0, -0.07, -0.56))
+			head.name = "Blade"
+			w.add_child(head)
+			w.add_child(box(Vector3(0.05, 0.06, 0.06), Color(0.3, 0.3, 0.32), Vector3(0, 0.0, -0.56)))
+			tip.position = Vector3(0, -0.12, -0.6)
+		2:
+			w = Node3D.new()
+			w.add_child(box(Vector3(0.035, 0.035, 0.6), Color(0.45, 0.3, 0.18), Vector3(0, 0, -0.22)))
+			var ball := sphere(0.085, Color.WHITE, Vector3(0, 0, -0.56), 8)
+			ball.name = "Blade"
+			w.add_child(ball)
+			for d in [Vector3.UP, Vector3.DOWN, Vector3.LEFT, Vector3.RIGHT, Vector3.FORWARD]:
+				w.add_child(box(Vector3(0.035, 0.035, 0.035), Color(0.35, 0.35, 0.38), Vector3(0, 0, -0.56) + d * 0.095))
+			tip.position = Vector3(0, 0, -0.62)
+		_:
+			w = make_sword(tier)
+			tip.position = Vector3(0, 0, -0.88)
+	w.add_child(tip)
+	set_sword_tier(w, tier)
+	return w
+
+
 static func set_sword_tier(s: Node3D, tier: int) -> void:
 	var blade := s.get_node_or_null("Blade") as MeshInstance3D
 	if blade == null:

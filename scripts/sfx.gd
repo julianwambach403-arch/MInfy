@@ -101,6 +101,31 @@ static func _die(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	return b
 
 
+static func _clang() -> PackedFloat32Array:
+	var b := _buf(0.6)
+	var partials := [[1250.0, 1.0], [2730.0, 0.6], [3910.0, 0.4], [5300.0, 0.25]]
+	for i in b.size():
+		var t := float(i) / RATE
+		var v := 0.0
+		for pt in partials:
+			v += sin(TAU * float(pt[0]) * t) * float(pt[1]) * exp(-t * (6.0 + float(pt[0]) / 800.0))
+		b[i] = v * 0.3
+	return b
+
+
+static func _steam(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var b := _buf(1.0)
+	var hp := 0.0
+	var prev := 0.0
+	for i in b.size():
+		var t := float(i) / RATE
+		var n := rng.randf_range(-1, 1)
+		hp = 0.7 * (hp + n - prev)
+		prev = n
+		b[i] = hp * 0.5 * minf(t * 20.0, 1.0) * exp(-t * 2.5)
+	return b
+
+
 static func build_all() -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
@@ -116,4 +141,7 @@ static func build_all() -> Dictionary:
 		"upgrade": _wav(_notes([440.0, 880.0, 1320.0], 0.09, 0.3)),
 		"die": _wav(_die(rng)),
 		"slam": _wav(_explode(rng)),
+		"clang": _wav(_clang()),
+		"steam": _wav(_steam(rng)),
+		"click": _wav(_notes([880.0], 0.04, 0.2)),
 	}

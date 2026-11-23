@@ -21,6 +21,8 @@ var lhand: Node3D
 var rhand: Node3D
 var sword: Node3D
 var sword_tip: Node3D
+var weapon_key := ""
+var forge_station: Node3D
 var orb: MeshInstance3D
 var wrist: Label3D
 var banner: Label3D
@@ -85,6 +87,9 @@ func _ready() -> void:
 	vr = _init_xr()
 	_build_npcs()
 	_build_rig()
+	forge_station = load("res://scripts/forge_station.gd").new()
+	forge_station.client = self
+	add_child(forge_station)
 	_build_lobby()
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.connection_failed.connect(_on_connection_failed)
@@ -131,11 +136,13 @@ func _build_rig() -> void:
 		l.tracker = &"left_hand"
 		origin.add_child(l)
 		l.button_pressed.connect(_on_left_button)
+		l.button_released.connect(_on_left_released)
 		lhand = l
 		var r := XRController3D.new()
 		r.tracker = &"right_hand"
 		origin.add_child(r)
 		r.button_pressed.connect(_on_right_button)
+		r.button_released.connect(_on_right_released)
 		rhand = r
 	else:
 		camera = Camera3D.new()
@@ -152,11 +159,7 @@ func _build_rig() -> void:
 	camera.far = 400.0
 	lhand.add_child(LP.make_hand(SKIN))
 	rhand.add_child(LP.make_hand(SKIN))
-	sword = LP.make_sword(0)
-	rhand.add_child(sword)
-	sword_tip = Node3D.new()
-	sword_tip.position = Vector3(0, 0, -0.88)
-	sword.add_child(sword_tip)
+	_set_weapon(0, 0)
 	orb = LP.sphere(0.045, Color(1.0, 0.5, 0.15), Vector3(0, 0.03, -0.08), 8, 3.0)
 	lhand.add_child(orb)
 
@@ -305,6 +308,9 @@ func _back_to_lobby(status: String) -> void:
 	Game.disconnect_peer()
 	state = "lobby"
 	lobby_status = status
+	forge_station.release_all()
+	forge_station._remove_ingot()
+	forge_station.forging = false
 	lobby_root.visible = true
 	for a in remotes.values():
 		(a["root"] as Node3D).queue_free()
@@ -328,7 +334,8 @@ func on_joined(id: int, st: Dictionary) -> void:
 	on_stats(st)
 	_say("Willkommen, %s! Sprich mit Ältestem Bruno am Lagerfeuer." % st["name"])
 	if not vr:
-		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts: Fähigkeit, 1-6/Tab: wählen, E: Sprechen")
+		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts: Fähigkeit, 1-6/Tab: wählen, E: Sprechen/Knopf")
+		_say("Schmiede: F = Hammer greifen, G = Rohling greifen, Linksklick = Hammerschlag")
 
 
 func on_join_failed(reason: String) -> void:
@@ -336,10 +343,8 @@ func on_join_failed(reason: String) -> void:
 
 
 func on_stats(st: Dictionary) -> void:
-	var old_sword: int = stats.get("sword", -1)
 	stats = st
-	if int(st["sword"]) != old_sword:
-		LP.set_sword_tier(sword, int(st["sword"]))
+	_set_weapon(int(st.get("weapon_type", 0)), int(st["sword"]))
 	if not _skill_list().has(skill_idx):
 		skill_idx = 0
 	_update_orb()
@@ -685,6 +690,8 @@ func on_teleport(pos: Vector3) -> void:
 
 func _process(delta: float) -> void:
 	time += delta
+	if sword != null:
+		sword.visible = not forge_station.holding("r")
 	cast_cd = maxf(cast_cd - delta, 0.0)
 	swing_cd = maxf(swing_cd - delta, 0.0)
 	woosh_cd = maxf(woosh_cd - delta, 0.0)
@@ -786,7 +793,7 @@ func _sword_vr(delta: float) -> void:
 	var hilt := rhand.global_position
 	var spd := (tip - last_tip).length() / maxf(delta, 0.001)
 	last_tip = tip
-	if not vr or stats.get("dead", false):
+	if not vr or stats.get("dead", false) or forge_station.holding("r"):
 		return
 	if spd > 3.5 and woosh_cd <= 0.0:
 		woosh_cd = 0.35
@@ -807,6 +814,14 @@ func _sword_vr(delta: float) -> void:
 
 func _desktop_swing() -> void:
 	if swing_cd > 0.0 or stats.get("dead", false):
+		return
+	if forge_station.holding("r"):
+		# Hammerschlag: nur die Hand bewegen, der Hammer folgt physikalisch
+		swing_cd = 0.4
+		rhand.rotation.x = deg_to_rad(70.0)
+		var htw := create_tween()
+		htw.tween_property(rhand, "rotation:x", deg_to_rad(-55.0), 0.13)
+		htw.tween_property(rhand, "rotation:x", 0.0, 0.25)
 		return
 	swing_cd = 0.45
 	rhand.rotation.x = deg_to_rad(70.0)
@@ -870,6 +885,33 @@ func _interact() -> void:
 			return
 
 
+func _set_weapon(wtype: int, tier: int) -> void:
+	var key := "%d_%d" % [wtype, tier]
+	if key == weapon_key:
+		return
+	weapon_key = key
+	if sword != null:
+		sword.queue_free()
+	sword = LP.make_weapon(wtype, tier)
+	rhand.add_child(sword)
+	sword_tip = sword.get_node("Tip")
+	last_tip = sword_tip.global_position if sword_tip.is_inside_tree() else Vector3.ZERO
+
+
+func on_forge_started(wtype: int, mat: int) -> void:
+	forge_station.on_forge_started(wtype, mat)
+
+
+func _on_left_released(n: String) -> void:
+	if n == "grip_click":
+		forge_station.release("l")
+
+
+func _on_right_released(n: String) -> void:
+	if n == "grip_click":
+		forge_station.release("r")
+
+
 func _haptic(hand: Node3D, amp: float, dur: float) -> void:
 	if vr and hand is XRController3D:
 		(hand as XRController3D).trigger_haptic_pulse("haptic", 0.0, amp, dur, 0.0)
@@ -879,6 +921,8 @@ func _on_left_button(n: String) -> void:
 	if state != "playing":
 		return
 	match n:
+		"grip_click":
+			forge_station.grab(lhand, "l")
 		"trigger_click":
 			_cast()
 		"ax_button":
@@ -895,6 +939,8 @@ func _on_right_button(n: String) -> void:
 	if state != "playing":
 		return
 	match n:
+		"grip_click":
+			forge_station.grab(rhand, "r")
 		"ax_button":
 			_interact()
 		"by_button":
@@ -926,7 +972,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif state == "playing":
 			match ke.keycode:
 				KEY_E:
-					_interact()
+					if not forge_station.press_ray(camera.global_position, -camera.global_basis.z):
+						_interact()
+				KEY_F:
+					if forge_station.holding("r"):
+						forge_station.release("r")
+					elif not forge_station.grab(rhand, "r"):
+						_say("Nichts zum Greifen in der Nähe (Hammer).")
+				KEY_G:
+					if forge_station.holding("l"):
+						forge_station.release("l")
+					elif not forge_station.grab(lhand, "l"):
+						_say("Nichts zum Greifen in der Nähe (Rohling).")
 				KEY_R:
 					Game.rpc_id(1, "req_recall")
 				KEY_Q:
@@ -1020,7 +1077,7 @@ func _make_avatar(color_i: int) -> Dictionary:
 	var rh := Node3D.new()
 	root.add_child(rh)
 	rh.add_child(LP.make_hand(SKIN))
-	var sw := LP.make_sword(0)
+	var sw := LP.make_weapon(0, 0)
 	rh.add_child(sw)
 	var label := LP.label("", 44, 0.003)
 	root.add_child(label)
@@ -1059,9 +1116,14 @@ func _update_remotes(delta: float) -> void:
 		if key != a["label_key"]:
 			a["label_key"] = key
 			lbl.text = "%s  Lv %d\nHP %d/%d" % [t[1], t[11], t[9], t[10]]
-		if int(a["tier"]) != int(t[12]):
-			a["tier"] = int(t[12])
-			LP.set_sword_tier(a["sword"], int(t[12]))
+		var wt: int = t[15] if t.size() > 15 else 0
+		var wkey := "%d_%d" % [wt, int(t[12])]
+		if a.get("wkey", "0_0") != wkey:
+			a["wkey"] = wkey
+			(a["sword"] as Node3D).queue_free()
+			var nsw := LP.make_weapon(wt, int(t[12]))
+			rh.add_child(nsw)
+			a["sword"] = nsw
 		var root_node: Node3D = a["root"]
 		root_node.visible = not bool(t[13])
 		var bubble: MeshInstance3D = a["bubble"]

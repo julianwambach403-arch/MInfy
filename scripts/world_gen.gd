@@ -362,15 +362,6 @@ static func _village(parent: Node3D) -> void:
 		bench.rotation = Vector3(0, -a, PI / 2.0)
 		fire.add_child(bench)
 	parent.add_child(fire)
-	# Schmiede-Esse neben Greta
-	var forge := Node3D.new()
-	var fp: Vector3 = D.NPCS["smith"]["pos"]
-	fp += Vector3(1.6, 0, 1.2)
-	forge.position = Vector3(fp.x, height(fp.x, fp.z), fp.z)
-	forge.add_child(LP.box(Vector3(1.4, 1.0, 1.2), Color(0.5, 0.48, 0.46), Vector3(0, 0.5, 0)))
-	forge.add_child(LP.box(Vector3(1.0, 0.1, 0.8), Color(1.0, 0.4, 0.1), Vector3(0, 1.02, 0), 3.0))
-	forge.add_child(LP.box(Vector3(0.5, 1.6, 0.5), Color(0.45, 0.43, 0.42), Vector3(0, 1.8, 0.3)))
-	parent.add_child(forge)
 
 
 static func _ruins(parent: Node3D) -> void:

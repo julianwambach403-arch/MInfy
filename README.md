@@ -25,7 +25,8 @@ Euer Fortschritt wird auf **deinem eigenen Server** gespeichert.
 | Alte Ruinen | Norden | Steingolem (Boss, Lv 7, Stampfangriff) |
 
 - **Ältester Bruno** (am Lagerfeuer) gibt 3 aufeinander aufbauende Aufgaben.
-- **Schmiedin Greta** verbessert dein Schwert: Holz → Eisen (40 Gold) → Gold (120) → Kristall (300).
+- **Waffen schmiedest du selbst** an Gretas Esse, mit echter Physik (siehe „Schmieden“ unten).
+  Greta verkauft dir Eisenerz und erklärt, wie es geht.
 - Erfahrung und Beute bekommen **alle**, die einen Gegner getroffen haben, also ideal zu zweit.
 - Wer besiegt wird, wacht im Dorf auf und verliert 10 % seines Golds.
 
@@ -48,6 +49,53 @@ Zu zweit lohnt sich die Aufteilung: Eine Person verlangsamt mit Frostnova und sc
 Schild, die andere heilt und teilt mit Kettenblitz aus. Werte und neue Fähigkeiten stehen in
 `scripts/game_data.gd` unter `SKILLS`, die Wirkung in `scripts/server.gd` unter `on_cast`.
 
+## Schmieden (mit echter Physik)
+
+Neben Schmiedin Greta (rechts vom Lagerfeuer) steht eine Schmiede mit **Esse, Amboss, Hammer,
+Wasserfass und Bedienfeld**. Hammer und Rohling sind echte Physik-Objekte (Jolt Physics). Sie fallen
+herunter, prallen ab, kollidieren mit dem Amboss und lassen sich werfen. Gegriffene Gegenstände
+folgen deiner Hand über Kräfte, sind also nicht einfach festgeklebt.
+
+**1. Erz sammeln**
+
+| Erz | Woher |
+|---|---|
+| Eisenerz | Schleime (30 %), Wölfe (60 %), oder bei Greta für 15 Gold kaufen (sie ansprechen) |
+| Golderz | Wölfe (15 %), Steingolem (3 Stück) |
+| Kristall | Steingolem (2 Stück) |
+
+**2. Rezept wählen:** Die Knöpfe am Bedienfeld drückst du in VR mit der Hand (antippen).
+Wähle die Waffe und das Material, dann **SCHMIEDEN**.
+
+| Material | Rezept | Schaden |
+|---|---|---|
+| Eisen | 3 Eisenerz | ×1,35 |
+| Gold | 2 Eisenerz + 4 Golderz | ×1,8 |
+| Kristall | 3 Golderz + 3 Kristall | ×2,5 |
+
+| Waffe | Besonderheit |
+|---|---|
+| Schwert | ausgewogen |
+| Axt | +25 % Schaden |
+| Streitkolben | +10 % Schaden und stößt Gegner zurück (außer den Golem) |
+
+**3. Erhitzen:** Der Rohling liegt in der Glut der Esse (links) und glüht langsam
+grau → rot → orange → gelb. Unter 40 % Hitze lässt er sich nicht formen und kühlt außerhalb der
+Glut langsam ab.
+
+**4. Hämmern:** Greife den Rohling (Grip-Taste) und leg ihn auf den Amboss. Greife den Hammer mit
+der anderen Hand und schlag zu. Ideal sind kräftige Schläge mit etwa **4–5 m/s**: zu sanft formt
+kaum, zu fest verschlechtert die Qualität. Mit jedem Schlag wird der Rohling länger und flacher.
+Funken, Klang und Vibration zeigen jeden Treffer. Das Bedienfeld zeigt Hitze, Form, Schläge und
+Qualität. Zwischendurch nachheizen!
+
+**5. Abschrecken:** Ist die Form bei 100 %, tauche die Klinge ins **Wasserfass** (rechts). Es zischt,
+und die Waffe ist fertig und sofort in deiner Hand. Noch heiß abgeschreckt gibt es volle Qualität.
+
+Die **Qualität** (Durchschnitt aus Schlagkraft und Hitze) verändert den Schaden von ×0,8 bis ×1,2 und
+steht im Waffennamen, z. B. „Meisterhafte Kristallaxt“ oder „Grobes Eisenschwert“. Abbrechen gibt
+das Erz zurück. Wer zu schnell „fertig“ meldet, dem zerspringt die Klinge, denn der Server prüft mit.
+
 ## Erfolge und eigene Fähigkeiten von Claude
 
 Für jeden geschafften **Erfolg** programmiert **Claude** (über die Claude Code CLI auf deinem
@@ -69,7 +117,9 @@ geheilte Lebenspunkte, Niederlagen …) und deine bisherigen eigenen Fähigkeite
 | Lebensretter | insgesamt 1000 Lebenspunkte heilen |
 | Stehaufmännchen | 5-mal besiegt werden |
 | Goldhamster | 500 Gold auf einmal besitzen |
-| Kristallklinge | das Kristallschwert schmieden lassen |
+| Kristallklinge | eine Waffe aus Kristall schmieden |
+| Lehrling der Esse | die erste eigene Waffe schmieden |
+| Meisterschmied | eine meisterhafte Waffe schmieden (Qualität ab 85 %) |
 
 **So läuft es ab:**
 1. Du schaffst einen Erfolg und es erscheint „Claude schmiedet jetzt eine eigene Fähigkeit für dich …“.
@@ -139,6 +189,7 @@ Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
 | Taste | Aktion |
 |---|---|
 | Linker Stick | Laufen (Stick drücken = Sprinten) |
+| Grip (links/rechts) | In der Schmiede: Hammer oder Rohling greifen (gedrückt halten, loslassen = fallen lassen/werfen) |
 | Rechter Stick links/rechts | Drehen in 30°-Schritten |
 | **Schwert schwingen** (rechte Hand) | Angreifen: je schneller, desto mehr Schaden |
 | Linker Trigger | Gewählte Fähigkeit wirken (aus der linken Hand) |
@@ -151,7 +202,9 @@ Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
 oder Server. Mit **A** verbindest du dich.
 
 **Am PC ohne Brille (zum Testen):** WASD laufen, Maus schauen, Linksklick Schwert,
-Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, 7/8/9/0 eigene Fähigkeiten, E sprechen, R Heimkehr, Shift sprinten.
+Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, 7/8/9/0 eigene Fähigkeiten, E sprechen bzw. Knopf am Bedienfeld drücken (anschauen), R Heimkehr, Shift sprinten.
+Schmiede am PC: F Hammer greifen/loslassen, G Rohling greifen/loslassen, Linksklick mit Hammer
+= Hammerschlag.
 
 ---
 
@@ -269,6 +322,7 @@ scripts/
   sfx.gd               Synthetisierte Soundeffekte
   skill_forge.gd       Erfolge -> Claude Code CLI -> eigene Fähigkeit (prüfen & laden)
   skill_api.gd         Begrenzte Schnittstelle für Claudes Fähigkeiten
+  forge_station.gd     Physikalische Schmiede (Greifen, Hitze, Hämmern, Abschrecken)
 server/                Startskripte für den Server
 Dockerfile, docker-compose.yml
 ```
