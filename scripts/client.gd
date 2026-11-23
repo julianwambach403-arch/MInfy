@@ -7,6 +7,7 @@ const Cfg = preload("res://scripts/config.gd")
 const LP = preload("res://scripts/lowpoly.gd")
 const WG = preload("res://scripts/world_gen.gd")
 const Sfx = preload("res://scripts/sfx.gd")
+const GLY = preload("res://scripts/glyphs.gd")
 
 const MOVE_SPEED := 3.2
 const SNAP_ANGLE := 0.5236
@@ -24,6 +25,7 @@ var sword_tip: Node3D
 var weapon_key := ""
 var forge_station: Node3D
 var menu_ui: Node3D
+var spell: Node3D
 var orb: MeshInstance3D
 var wrist: Label3D
 var banner: Label3D
@@ -94,6 +96,9 @@ func _ready() -> void:
 	menu_ui = load("res://scripts/menu_ui.gd").new()
 	menu_ui.client = self
 	add_child(menu_ui)
+	spell = load("res://scripts/spellcraft.gd").new()
+	spell.client = self
+	add_child(spell)
 	_build_lobby()
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.connection_failed.connect(_on_connection_failed)
@@ -340,7 +345,7 @@ func on_joined(id: int, st: Dictionary) -> void:
 	on_stats(st)
 	_say("Willkommen, %s! Sprich mit Ältestem Bruno am Lagerfeuer." % st["name"])
 	if not vr:
-		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts: Fähigkeit, 1-6/Tab: wählen, E: Sprechen/Knopf")
+		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts halten + Maus bewegen: Zauberzeichen, E: Sprechen/Knopf")
 		_say("Schmiede: F = Hammer greifen, G = Rohling greifen, Linksklick = Hammerschlag")
 		_say("I = Menü/Inventar (Fadenkreuz + Linksklick), T = Trank trinken")
 
@@ -404,6 +409,9 @@ func _refresh_wrist() -> void:
 		status = "zu wenig Mana"
 	var mark := "*" if sk.get("custom", false) else ""
 	t += "\nFähigkeit: %s%s (%d Mana) - %s" % [mark, sk["name"], int(sk["mana"]), status]
+	var gl := _glyph_for(skill_idx)
+	if gl != "":
+		t += "\nZeichen: %s" % GLY.NAMES.get(gl, gl)
 	var list := _skill_list()
 	t += "\n%d Fähigkeiten, davon %d eigene" % [list.size(), (st.get("custom_skills", []) as Array).size()]
 	t += "\nErfolge: %d/%d" % [st.get("achievements", 0), st.get("achievements_total", 0)]
@@ -699,6 +707,11 @@ func on_teleport(pos: Vector3) -> void:
 
 func _process(delta: float) -> void:
 	time += delta
+	if spell.drawing:
+		if state != "playing":
+			spell.cancel()
+		elif vr:
+			spell.add_point(lhand.global_position)
 	if sword != null:
 		sword.visible = not forge_station.holding("r") and not menu_ui.holding("r")
 	cast_cd = maxf(cast_cd - delta, 0.0)
@@ -907,6 +920,62 @@ func _set_weapon(wtype: int, tier: int) -> void:
 	last_tip = sword_tip.global_position if sword_tip.is_inside_tree() else Vector3.ZERO
 
 
+# ======================= Zauberzeichen =======================
+
+
+## Zeichen, mit dem eine Fähigkeit gewirkt wird ("" = keins)
+func _glyph_for(idx: int) -> String:
+	if idx >= D.CUSTOM_BASE:
+		var ci := idx - D.CUSTOM_BASE
+		return GLY.CUSTOM_GLYPHS[ci] if ci < GLY.CUSTOM_GLYPHS.size() else ""
+	if idx < 0 or idx >= D.SKILLS.size():
+		return ""
+	return GLY.SKILL_GLYPHS.get(str(D.SKILLS[idx]["id"]), "")
+
+
+func _begin_draw() -> void:
+	if state != "playing" or stats.get("dead", false):
+		return
+	var at: Vector3
+	if vr:
+		at = lhand.global_position
+	else:
+		at = camera.global_position - camera.global_basis.z * 0.6 + camera.global_basis.y * 0.05
+	spell.start(at)
+
+
+func _end_draw() -> void:
+	if not spell.drawing:
+		return
+	var allowed := {}
+	for idx in _skill_list():
+		var g := _glyph_for(idx)
+		if g != "":
+			allowed[g] = idx
+	var res: Dictionary = spell.finish(allowed.keys())
+	if float(res["length"]) < 0.08:
+		# Nur kurz getippt: gewählte Fähigkeit direkt wirken
+		spell.cancel()
+		_cast()
+		return
+	if str(res["name"]) == "":
+		spell.flash(Color(0.6, 0.6, 0.65))
+		_play("hurt", lhand.global_position)
+		var guess := str(res.get("guess", ""))
+		var hint := " Meintest du %s?" % GLY.NAMES.get(guess, guess) if guess != "" else ""
+		_say("Zeichen nicht erkannt (%d %%).%s" % [roundi(float(res["score"]) * 100.0), hint])
+		_haptic(lhand, 0.2, 0.15)
+		return
+	var idx: int = allowed[res["name"]]
+	skill_idx = idx
+	_update_orb()
+	var info := _skill_info(idx)
+	spell.flash(info["color"])
+	_say("%s! (Zeichen %s, Präzision %d %%)" % [info["name"], GLY.NAMES.get(res["name"], ""),
+		roundi(float(res["score"]) * 100.0)])
+	_cast()
+
+
 func on_materialized(id: String) -> void:
 	menu_ui.on_materialized(id)
 
@@ -916,6 +985,8 @@ func on_forge_started(wtype: int, mat: int) -> void:
 
 
 func _on_left_released(n: String) -> void:
+	if n == "trigger_click":
+		_end_draw()
 	if n == "grip_click":
 		forge_station.release("l")
 		menu_ui.release_bottle("l")
@@ -942,7 +1013,7 @@ func _on_left_button(n: String) -> void:
 		"menu_button":
 			menu_ui.toggle()
 		"trigger_click":
-			_cast()
+			_begin_draw()
 		"ax_button":
 			_select_skill(1)
 		"by_button":
@@ -1022,6 +1093,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_T:
 					menu_ui.drink_desktop()
 	var mb := event as InputEventMouseButton
+	if mb and not mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT and state == "playing":
+		_end_draw()
 	if mb and mb.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -1033,8 +1106,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					_desktop_swing()
 			elif mb.button_index == MOUSE_BUTTON_RIGHT:
-				_cast()
+				_begin_draw()
 	var mm := event as InputEventMouseMotion
+	if mm and spell.drawing and not vr:
+		spell.add_mouse(mm.relative)
+		return
 	if mm and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		origin.rotate_y(-mm.relative.x * 0.0025)
 		camera.rotation.x = clampf(camera.rotation.x - mm.relative.y * 0.0025, -1.4, 1.4)

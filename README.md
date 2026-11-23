@@ -129,6 +129,39 @@ Die **Qualität** (Durchschnitt aus Schlagkraft und Hitze) verändert den Schade
 steht im Waffennamen, z. B. „Meisterhafte Kristallaxt“ oder „Grobes Eisenschwert“. Abbrechen gibt
 das Erz zurück. Wer zu schnell „fertig“ meldet, dem zerspringt die Klinge, denn der Server prüft mit.
 
+## Zauberzeichen: Zauber in die Luft zeichnen
+
+Zauber wirkst du, indem du ein **Zeichen in die Luft malst**: **Linken Trigger gedrückt halten**,
+mit der linken Hand das Zeichen zeichnen (es entsteht eine leuchtende Spur) und **loslassen**.
+Wird das Zeichen erkannt, leuchtet die Spur in der Farbe des Zaubers auf, und er fliegt in die
+Richtung, in die deine linke Hand zeigt.
+
+| Zeichen | Zauber |
+|---|---|
+| Kreis ○ | Feuerball |
+| Haken (V) ✓ | Heilung |
+| Dreieck △ | Frostnova |
+| Spirale (1½ Windungen) | Wirbelwind |
+| Blitz (Zickzack) ϟ | Kettenblitz |
+| Quadrat □ | Schutzschild |
+| Stern ☆, Welle ∿, Dach ^, liegende Acht ∞ | deine 1. bis 4. eigene Fähigkeit von Claude |
+
+- Es zählen nur Zeichen für Fähigkeiten, die du schon hast. Größe, Zeichenrichtung und Startpunkt
+  sind egal, leicht schief geht auch.
+- Ein **kurzes Antippen** des Triggers (ohne zu zeichnen) wirkt die gerade gewählte Fähigkeit,
+  praktisch für schnelle Feuerbälle hintereinander.
+- Nicht erkannt? Dann zischt es nur, und das Spiel sagt dir, was es vermutet hat
+  („Meintest du Dreieck?“). Mana wird dabei nicht verbraucht.
+- Im Menü unter **Fähigkeiten** siehst du zu jeder Fähigkeit ihr Zeichen als Vorlage (der grüne
+  Punkt ist ein möglicher Startpunkt). Am Handgelenk steht das Zeichen der gewählten Fähigkeit.
+- **Am PC:** Rechte Maustaste gedrückt halten, Zeichen mit der Maus malen, loslassen.
+
+Technik: Die Erkennung (`scripts/glyphs.gd`) arbeitet nach dem Prinzip des „$1 Unistroke
+Recognizer“. Sie tastet den Strich neu ab, normiert und vergleicht ihn mit Vorlagen, zählt zusätzlich
+die Ecken (damit Quadrat und Kreis nicht verwechselt werden) und toleriert kleine Drehungen. In einem
+Test mit 400 verrauschten, verzerrten Zeichnungen wurden 394 richtig erkannt, zufällige Kritzeleien
+werden abgelehnt.
+
 ## Erfolge und eigene Fähigkeiten von Claude
 
 Für jeden geschafften **Erfolg** programmiert **Claude** (über die Claude Code CLI auf deinem
@@ -227,7 +260,7 @@ Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
 | Rechter Trigger (Menü offen) | Mit dem Laserstrahl klicken |
 | Rechter Stick links/rechts | Drehen in 30°-Schritten |
 | **Schwert schwingen** (rechte Hand) | Angreifen: je schneller, desto mehr Schaden |
-| Linker Trigger | Gewählte Fähigkeit wirken (aus der linken Hand) |
+| Linker Trigger halten + zeichnen | Zauberzeichen in die Luft malen, loslassen = Zauber wirken (kurz tippen = gewählte Fähigkeit) |
 | X / Y (links) | Nächste / vorherige Fähigkeit wählen |
 | A (rechts) | Mit Figuren sprechen |
 | B (rechts) | Heimkehr ins Dorf (alle 20 s) |
@@ -237,7 +270,7 @@ Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
 oder Server. Mit **A** verbindest du dich.
 
 **Am PC ohne Brille (zum Testen):** WASD laufen, Maus schauen, Linksklick Schwert,
-Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, 7/8/9/0 eigene Fähigkeiten, E sprechen bzw. Knopf am Bedienfeld drücken (anschauen), R Heimkehr, Shift sprinten.
+Rechte Maustaste halten + Maus bewegen = Zauberzeichen (kurz klicken oder Q = gewählte Fähigkeit wirken), 1–6 oder Tab Fähigkeit wählen, 7/8/9/0 eigene Fähigkeiten, E sprechen bzw. Knopf am Bedienfeld drücken (anschauen), R Heimkehr, Shift sprinten.
 Menü: I (Fadenkreuz + Linksklick), T Trank trinken.
 Schmiede am PC: F Hammer greifen/loslassen, G Rohling greifen/loslassen, Linksklick mit Hammer
 = Hammerschlag.
@@ -360,6 +393,8 @@ scripts/
   skill_api.gd         Begrenzte Schnittstelle für Claudes Fähigkeiten
   forge_station.gd     Physikalische Schmiede (Greifen, Hitze, Hämmern, Abschrecken)
   menu_ui.gd           Schwebendes Menü: Inventar, Ausrüstung, Fähigkeiten, Status, Tränke
+  glyphs.gd            Erkennung der Zauberzeichen (Vorlagen, Normierung, Vergleich)
+  spellcraft.gd        Leuchtende Zeichen-Spur und Strich-Erfassung
 server/                Startskripte für den Server
 Dockerfile, docker-compose.yml
 ```

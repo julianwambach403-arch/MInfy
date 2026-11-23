@@ -12,6 +12,7 @@ extends Node3D
 const D = preload("res://scripts/game_data.gd")
 const LP = preload("res://scripts/lowpoly.gd")
 const WG = preload("res://scripts/world_gen.gd")
+const GLY = preload("res://scripts/glyphs.gd")
 
 const COL_PANEL := Color(0.97, 0.97, 0.98, 0.86)
 const COL_HEADER := Color(0.93, 0.93, 0.95, 0.95)
@@ -354,11 +355,29 @@ func _build_skills() -> void:
 	if list.has(selected):
 		var info: Dictionary = client._skill_info(selected)
 		var body := "%s\n\nMana: %d\nAbklingzeit: %.0f s" % [info["desc"], int(info["mana"]), float(info["cd"])]
+		var glyph: String = client._glyph_for(selected)
+		if glyph != "":
+			body += "\nZeichen: %s (mit Linkem Trigger zeichnen)" % GLY.NAMES.get(glyph, glyph)
 		if info.get("custom", false):
-			body += "\n\nEigene Fähigkeit, von Claude für dich programmiert."
+			body += "\nEigene Fähigkeit, von Claude programmiert."
 		_detail(str(info["name"]), body, ["select_skill"])
+		if glyph != "":
+			_draw_glyph(glyph, Vector2(0.43, -0.2), 0.14, info["color"])
 	else:
 		_detail("Fähigkeiten", "Wähle eine Fähigkeit aus. Mit * markierte hat Claude für dich erschaffen.", [])
+
+
+## Zeichnet die Vorlage eines Zauberzeichens als Punktspur ins Menü
+func _draw_glyph(glyph: String, center: Vector2, size: float, color: Color) -> void:
+	var pts := GLY.preview(glyph)
+	for i in pts.size():
+		var p: Vector2 = pts[i]
+		var dot := _quad(content, center + p * size, Vector2(0.007, 0.007), color.lerp(COL_ACCENT, float(i) / pts.size()), 0.01)
+		dot.render_priority = 5
+	# Startpunkt markieren
+	if not pts.is_empty():
+		var start := _quad(content, center + pts[0] * size, Vector2(0.014, 0.014), Color(0.2, 0.7, 0.3), 0.011)
+		start.render_priority = 6
 
 
 func _build_status() -> void:
