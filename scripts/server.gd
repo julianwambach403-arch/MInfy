@@ -263,6 +263,7 @@ func on_peer_disconnected(pid: int) -> void:
 	var p = players.get(pid)
 	if p != null and p.get("joined", false):
 		_forge_refund(p)
+		_return_held(p)
 		_save(p)
 		print("[Server] %s hat das Spiel verlassen." % p["name"])
 		Game.rpc("msg", "%s hat die Welt verlassen." % p["name"])
@@ -306,7 +307,7 @@ func join(pid: int, pname: String, color: int) -> void:
 		"pos": sp, "last_swing": 0.0, "last_cast": 0.0, "last_hurt": -100.0,
 		"last_recall": -100.0, "dirty": true, "cds": {}, "shield_t": 0.0,
 		"record": {}, "achievements": [], "custom": [],
-		"weapon_type": 0, "quality": 0.5, "ores": {"iron": 0, "gold": 0, "crystal": 0}, "forge": null,
+		"weapon_type": 0, "quality": 0.5, "inventory": [], "held": {}, "forge": null,
 	}
 	var path := _save_path(pname)
 	if FileAccess.file_exists(path):
@@ -325,10 +326,22 @@ func join(pid: int, pname: String, color: int) -> void:
 					p["achievements"].append(str(a))
 			p["weapon_type"] = clampi(int(data.get("weapon_type", 0)), 0, D.WEAPON_TYPES.size() - 1)
 			p["quality"] = clampf(float(data.get("quality", 0.5)), 0.0, 1.0)
+			var inv = data.get("inventory", [])
+			if inv is Array:
+				for st in inv:
+					if st is Dictionary and D.ITEMS.has(str(st.get("id", ""))):
+						var clean := {"id": str(st["id"]), "n": maxi(int(st.get("n", 1)), 1)}
+						if clean["id"] == "weapon":
+							clean["wtype"] = clampi(int(st.get("wtype", 0)), 0, D.WEAPON_TYPES.size() - 1)
+							clean["tier"] = clampi(int(st.get("tier", 0)), 0, D.SWORDS.size() - 1)
+							clean["q"] = clampf(float(st.get("q", 0.5)), 0.0, 1.0)
+						p["inventory"].append(clean)
+			# Alte Spielstände: Erz-Zähler ins Inventar übernehmen
 			var ores = data.get("ores", {})
 			if ores is Dictionary:
-				for k in D.ORES:
-					p["ores"][k] = int(ores.get(k, 0))
+				for k in ores:
+					if D.ITEMS.has(str(k)) and int(ores[k]) > 0:
+						inv_add(p, str(k), int(ores[k]))
 			p["hp"] = D.max_hp(int(p["level"]))
 	players[pid] = p
 	_load_custom_skills(p)
@@ -346,7 +359,7 @@ func join(pid: int, pname: String, color: int) -> void:
 func _save(p: Dictionary) -> void:
 	var data := {}
 	for key in ["name", "level", "xp", "gold", "sword", "quest_idx", "quest_active", "quest_progress",
-			"record", "achievements", "weapon_type", "quality", "ores"]:
+			"record", "achievements", "weapon_type", "quality", "inventory"]:
 		data[key] = p[key]
 	var f := FileAccess.open(_save_path(p["name"]), FileAccess.WRITE)
 	if f:
@@ -362,11 +375,13 @@ func _stats(p: Dictionary) -> Dictionary:
 		"gold": p["gold"], "hp": int(ceilf(float(p["hp"]))), "max_hp": int(D.max_hp(lvl)),
 		"mana": int(p["mana"]), "max_mana": int(D.MAX_MANA), "sword": p["sword"],
 		"sword_name": D.weapon_name(int(p["weapon_type"]), int(p["sword"]), float(p["quality"])),
-		"weapon_type": p["weapon_type"], "quality": p["quality"], "ores": p["ores"],
+		"weapon_type": p["weapon_type"], "quality": p["quality"],
+		"ores": {"iron": inv_count(p, "iron"), "gold": inv_count(p, "gold"), "crystal": inv_count(p, "crystal")},
+		"inventory": (p["inventory"] as Array).duplicate(true), "held": (p["held"] as Dictionary).duplicate(),
 		"quest_title": "", "quest_progress": p["quest_progress"],
 		"quest_count": 0, "quest_active": p["quest_active"], "quest_done": qi >= D.QUESTS.size(),
 		"dead": p["dead"], "shield": float(p["shield_t"]) > 0.0,
-		"achievements": (p["achievements"] as Array).size(), "achievements_total": D.ACHIEVEMENTS.size(),
+		"achievements": (p["achievements"] as Array).size(), "achievement_ids": (p["achievements"] as Array).duplicate(), "achievements_total": D.ACHIEVEMENTS.size(),
 		"forging": forge != null and forge.is_forging_for(p["name"]),
 	}
 	var customs: Array = []
@@ -761,9 +776,12 @@ func _talk_smith(pid: int, p: Dictionary) -> void:
 	var price: int = D.ORE_PRICE
 	if int(p["gold"]) >= price:
 		p["gold"] = int(p["gold"]) - price
-		p["ores"]["iron"] = int(p["ores"]["iron"]) + 1
+		if not inv_add(p, "iron", 1):
+			p["gold"] = int(p["gold"]) + price
+			Game.rpc_id(pid, "dialog", "smith", "Dein Inventar ist voll!")
+			return
 		text = "Hier, 1 Eisenerz für %d Gold (du hast jetzt %d). Schmieden musst du aber selbst: " % [
-			price, p["ores"]["iron"]]
+			price, inv_count(p, "iron")]
 		Game.rpc_id(pid, "fx", 4, p["head"])
 	else:
 		text = "Eisenerz kostet %d Gold, du hast nur %d. Erz findest du auch bei Wölfen und dem Golem! " % [
@@ -777,10 +795,12 @@ func _talk_smith(pid: int, p: Dictionary) -> void:
 func _roll_loot(pid: int, p: Dictionary, def: Dictionary) -> void:
 	for entry in def.get("loot", []):
 		if rng.randf() < float(entry[1]):
-			var ore: String = entry[0]
+			var item: String = entry[0]
 			var n: int = entry[2]
-			p["ores"][ore] = int(p["ores"].get(ore, 0)) + n
-			Game.rpc_id(pid, "msg", "+%d %s" % [n, D.ORES[ore]])
+			if inv_add(p, item, n):
+				Game.rpc_id(pid, "msg", "+%d %s" % [n, D.ITEMS[item]["name"]])
+			else:
+				Game.rpc_id(pid, "msg", "Inventar voll! %s verloren." % D.ITEMS[item]["name"])
 
 
 func _forge_refund(p: Dictionary) -> void:
@@ -789,7 +809,7 @@ func _forge_refund(p: Dictionary) -> void:
 		return
 	var recipe: Dictionary = D.RECIPES[int(f["mat"])]
 	for k in recipe:
-		p["ores"][k] = int(p["ores"][k]) + int(recipe[k])
+		inv_add(p, k, int(recipe[k]))
 	p["forge"] = null
 	p["dirty"] = true
 
@@ -807,13 +827,13 @@ func on_forge_start(pid: int, wtype: int, mat: int) -> void:
 		return
 	var recipe: Dictionary = D.RECIPES[mat]
 	for k in recipe:
-		if int(p["ores"].get(k, 0)) < int(recipe[k]):
+		if inv_count(p, k) < int(recipe[k]):
 			Game.rpc_id(pid, "msg", "Dir fehlt Erz. Rezept: %s" % D.recipe_text(mat))
 			Game.rpc_id(pid, "dialog", "smith", "Für %s brauchst du %s. Sprich mich an, ich verkaufe Eisenerz!" % [
 				D.MATERIALS[mat], D.recipe_text(mat)])
 			return
 	for k in recipe:
-		p["ores"][k] = int(p["ores"][k]) - int(recipe[k])
+		inv_remove(p, k, int(recipe[k]))
 	p["forge"] = {"type": wtype, "mat": mat, "t": _now()}
 	p["dirty"] = true
 	Game.rpc_id(pid, "forge_started", wtype, mat)
@@ -832,6 +852,10 @@ func on_forge_finish(pid: int, strikes: int, quality: float) -> void:
 		return
 	quality = clampf(quality, 0.0, 1.0)
 	p["forge"] = null
+	# Die bisherige Waffe wandert ins Inventar (das Holzschwert nicht)
+	if int(p["sword"]) > 0:
+		if not inv_add(p, "weapon", 1, {"wtype": p["weapon_type"], "tier": p["sword"], "q": p["quality"]}):
+			Game.rpc_id(pid, "msg", "Inventar voll – deine alte Waffe bleibt in der Schmiede zurück.")
 	p["sword"] = int(f["mat"])
 	p["weapon_type"] = int(f["type"])
 	p["quality"] = quality
@@ -843,6 +867,182 @@ func on_forge_finish(pid: int, strikes: int, quality: float) -> void:
 	Game.rpc("fx", 5, p["rh"])
 	Game.rpc("msg", "%s hat geschmiedet: %s (Qualität %d %%)" % [p["name"], wname, roundi(quality * 100.0)])
 	_save(p)
+
+
+# ======================= Inventar =======================
+
+func inv_count(p: Dictionary, id: String) -> int:
+	var n := 0
+	for st in p["inventory"]:
+		if st["id"] == id:
+			n += int(st["n"])
+	return n
+
+
+func inv_add(p: Dictionary, id: String, n: int, props: Dictionary = {}) -> bool:
+	var inv: Array = p["inventory"]
+	if id != "weapon":
+		for st in inv:
+			if st["id"] == id:
+				st["n"] = int(st["n"]) + n
+				p["dirty"] = true
+				return true
+	if inv.size() >= D.INV_SLOTS:
+		return false
+	var st := {"id": id, "n": n}
+	st.merge(props)
+	inv.append(st)
+	p["dirty"] = true
+	return true
+
+
+func inv_remove(p: Dictionary, id: String, n: int) -> bool:
+	if inv_count(p, id) < n:
+		return false
+	var inv: Array = p["inventory"]
+	for i in range(inv.size() - 1, -1, -1):
+		if n <= 0:
+			break
+		var st: Dictionary = inv[i]
+		if st["id"] != id:
+			continue
+		var take := mini(n, int(st["n"]))
+		st["n"] = int(st["n"]) - take
+		n -= take
+		if int(st["n"]) <= 0:
+			inv.remove_at(i)
+	p["dirty"] = true
+	return true
+
+
+func _use_consumable(pid: int, p: Dictionary, id: String) -> void:
+	match id:
+		"potion_hp":
+			var mh := D.max_hp(int(p["level"]))
+			var healed := minf(mh, float(p["hp"]) + mh * 0.5) - float(p["hp"])
+			p["hp"] = float(p["hp"]) + healed
+			var head: Vector3 = p["head"]
+			Game.rpc("fx_damage", head + Vector3(0, 0.35, 0), roundi(healed), 2)
+			Game.rpc("fx", 7, head)
+		"potion_mp":
+			p["mana"] = minf(D.MAX_MANA, float(p["mana"]) + 60.0)
+			Game.rpc("fx", 11, p["head"])
+	p["dirty"] = true
+
+
+func _nearest_other_player(pid: int, p: Dictionary, max_dist: float) -> int:
+	var best := max_dist
+	var found := -1
+	for other_id in players:
+		if other_id == pid:
+			continue
+		var o = _player(other_id)
+		if o == null:
+			continue
+		var d := _flat(o["pos"], p["pos"])
+		if d < best:
+			best = d
+			found = other_id
+	return found
+
+
+## Aktion auf einem Inventarplatz: use | equip | materialize | drop | give
+func on_item_action(pid: int, slot: int, action: String) -> void:
+	var p = _player(pid)
+	if p == null or p["dead"]:
+		return
+	var inv: Array = p["inventory"]
+	if slot < 0 or slot >= inv.size():
+		return
+	var st: Dictionary = inv[slot]
+	var id: String = st["id"]
+	var def: Dictionary = D.ITEMS[id]
+	match action:
+		"use":
+			if def["type"] != "consumable":
+				return
+			inv_remove(p, id, 1)
+			_use_consumable(pid, p, id)
+		"materialize":
+			if def["type"] != "consumable":
+				return
+			inv_remove(p, id, 1)
+			var held: Dictionary = p["held"]
+			held[id] = int(held.get(id, 0)) + 1
+			Game.rpc_id(pid, "materialized", id)
+		"equip":
+			if id != "weapon":
+				return
+			inv.remove_at(slot)
+			if int(p["sword"]) > 0 or int(p["weapon_type"]) != 0:
+				inv_add(p, "weapon", 1, {"wtype": p["weapon_type"], "tier": p["sword"], "q": p["quality"]})
+			p["weapon_type"] = int(st["wtype"])
+			p["sword"] = int(st["tier"])
+			p["quality"] = float(st["q"])
+			Game.rpc("fx", 5, p["rh"])
+			Game.rpc_id(pid, "msg", "Ausgerüstet: %s" % D.item_name(st))
+		"drop":
+			if id == "weapon":
+				inv.remove_at(slot)
+			else:
+				inv_remove(p, id, 1)
+			Game.rpc_id(pid, "msg", "%s weggeworfen." % D.item_name(st))
+		"give":
+			var other_id := _nearest_other_player(pid, p, 4.0)
+			if other_id < 0:
+				Game.rpc_id(pid, "msg", "Niemand in der Nähe (max. 4 m), dem du etwas geben kannst.")
+				return
+			var other: Dictionary = players[other_id]
+			var props := {}
+			if id == "weapon":
+				props = {"wtype": st["wtype"], "tier": st["tier"], "q": st["q"]}
+			if not inv_add(other, id, 1, props):
+				Game.rpc_id(pid, "msg", "Das Inventar von %s ist voll." % other["name"])
+				return
+			if id == "weapon":
+				inv.remove_at(slot)
+			else:
+				inv_remove(p, id, 1)
+			Game.rpc_id(pid, "msg", "Du gibst %s: %s" % [other["name"], D.item_name(st)])
+			Game.rpc_id(other_id, "msg", "%s gibt dir: %s" % [p["name"], D.item_name(st)])
+			Game.rpc_id(other_id, "fx", 4, other["head"])
+			_save(other)
+	p["dirty"] = true
+	_save(p)
+
+
+## Ein materialisierter Trank wurde getrunken (Flasche am Mund).
+func on_held_consume(pid: int, id: String) -> void:
+	var p = _player(pid)
+	if p == null or p["dead"]:
+		return
+	var held: Dictionary = p["held"]
+	if int(held.get(id, 0)) <= 0:
+		return
+	held[id] = int(held[id]) - 1
+	_use_consumable(pid, p, id)
+
+
+## Ein materialisierter Gegenstand kehrt ins Inventar zurück.
+func on_held_return(pid: int, id: String) -> void:
+	var p = _player(pid)
+	if p == null:
+		return
+	_return_held(p, id)
+
+
+func _return_held(p: Dictionary, only_id: String = "") -> void:
+	var held: Dictionary = p["held"]
+	for id in held.keys():
+		if only_id != "" and id != only_id:
+			continue
+		var n := int(held[id])
+		if only_id != "":
+			n = mini(n, 1)
+		if n > 0:
+			inv_add(p, id, n)
+		held[id] = int(held[id]) - n
+	p["dirty"] = true
 
 
 func on_forge_cancel(pid: int) -> void:

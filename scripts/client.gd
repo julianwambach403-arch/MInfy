@@ -23,6 +23,7 @@ var sword: Node3D
 var sword_tip: Node3D
 var weapon_key := ""
 var forge_station: Node3D
+var menu_ui: Node3D
 var orb: MeshInstance3D
 var wrist: Label3D
 var banner: Label3D
@@ -90,6 +91,9 @@ func _ready() -> void:
 	forge_station = load("res://scripts/forge_station.gd").new()
 	forge_station.client = self
 	add_child(forge_station)
+	menu_ui = load("res://scripts/menu_ui.gd").new()
+	menu_ui.client = self
+	add_child(menu_ui)
 	_build_lobby()
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.connection_failed.connect(_on_connection_failed)
@@ -309,6 +313,8 @@ func _back_to_lobby(status: String) -> void:
 	state = "lobby"
 	lobby_status = status
 	forge_station.release_all()
+	menu_ui.close_menu()
+	menu_ui.clear_bottles()
 	forge_station._remove_ingot()
 	forge_station.forging = false
 	lobby_root.visible = true
@@ -336,6 +342,7 @@ func on_joined(id: int, st: Dictionary) -> void:
 	if not vr:
 		_say("WASD laufen, Maus schauen, Links: Schwert, Rechts: Fähigkeit, 1-6/Tab: wählen, E: Sprechen/Knopf")
 		_say("Schmiede: F = Hammer greifen, G = Rohling greifen, Linksklick = Hammerschlag")
+		_say("I = Menü/Inventar (Fadenkreuz + Linksklick), T = Trank trinken")
 
 
 func on_join_failed(reason: String) -> void:
@@ -349,6 +356,8 @@ func on_stats(st: Dictionary) -> void:
 		skill_idx = 0
 	_update_orb()
 	_refresh_wrist()
+	if menu_ui:
+		menu_ui.on_stats()
 
 
 func _skill_ready_in(i: int) -> float:
@@ -691,7 +700,7 @@ func on_teleport(pos: Vector3) -> void:
 func _process(delta: float) -> void:
 	time += delta
 	if sword != null:
-		sword.visible = not forge_station.holding("r")
+		sword.visible = not forge_station.holding("r") and not menu_ui.holding("r")
 	cast_cd = maxf(cast_cd - delta, 0.0)
 	swing_cd = maxf(swing_cd - delta, 0.0)
 	woosh_cd = maxf(woosh_cd - delta, 0.0)
@@ -793,7 +802,7 @@ func _sword_vr(delta: float) -> void:
 	var hilt := rhand.global_position
 	var spd := (tip - last_tip).length() / maxf(delta, 0.001)
 	last_tip = tip
-	if not vr or stats.get("dead", false) or forge_station.holding("r"):
+	if not vr or stats.get("dead", false) or forge_station.holding("r") or menu_ui.holding("r"):
 		return
 	if spd > 3.5 and woosh_cd <= 0.0:
 		woosh_cd = 0.35
@@ -898,6 +907,10 @@ func _set_weapon(wtype: int, tier: int) -> void:
 	last_tip = sword_tip.global_position if sword_tip.is_inside_tree() else Vector3.ZERO
 
 
+func on_materialized(id: String) -> void:
+	menu_ui.on_materialized(id)
+
+
 func on_forge_started(wtype: int, mat: int) -> void:
 	forge_station.on_forge_started(wtype, mat)
 
@@ -905,11 +918,13 @@ func on_forge_started(wtype: int, mat: int) -> void:
 func _on_left_released(n: String) -> void:
 	if n == "grip_click":
 		forge_station.release("l")
+		menu_ui.release_bottle("l")
 
 
 func _on_right_released(n: String) -> void:
 	if n == "grip_click":
 		forge_station.release("r")
+		menu_ui.release_bottle("r")
 
 
 func _haptic(hand: Node3D, amp: float, dur: float) -> void:
@@ -922,7 +937,10 @@ func _on_left_button(n: String) -> void:
 		return
 	match n:
 		"grip_click":
-			forge_station.grab(lhand, "l")
+			if not forge_station.grab(lhand, "l"):
+				menu_ui.grab_bottle(lhand, "l")
+		"menu_button":
+			menu_ui.toggle()
 		"trigger_click":
 			_cast()
 		"ax_button":
@@ -940,7 +958,11 @@ func _on_right_button(n: String) -> void:
 		return
 	match n:
 		"grip_click":
-			forge_station.grab(rhand, "r")
+			if not forge_station.grab(rhand, "r"):
+				menu_ui.grab_bottle(rhand, "r")
+		"trigger_click":
+			if menu_ui.is_open:
+				menu_ui.click()
 		"ax_button":
 			_interact()
 		"by_button":
@@ -995,6 +1017,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					_choose_skill(D.CUSTOM_BASE + ci)
 				KEY_TAB:
 					_select_skill(1)
+				KEY_I:
+					menu_ui.toggle()
+				KEY_T:
+					menu_ui.drink_desktop()
 	var mb := event as InputEventMouseButton
 	if mb and mb.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -1002,7 +1028,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if state == "playing":
 			if mb.button_index == MOUSE_BUTTON_LEFT:
-				_desktop_swing()
+				if menu_ui.is_open:
+					menu_ui.click()
+				else:
+					_desktop_swing()
 			elif mb.button_index == MOUSE_BUTTON_RIGHT:
 				_cast()
 	var mm := event as InputEventMouseMotion

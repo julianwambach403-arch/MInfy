@@ -144,4 +144,8 @@ static func build_all() -> Dictionary:
 		"clang": _wav(_clang()),
 		"steam": _wav(_steam(rng)),
 		"click": _wav(_notes([880.0], 0.04, 0.2)),
+		"menu_open": _wav(_notes([1046.0, 1318.0, 1568.0, 2093.0], 0.045, 0.18)),
+		"menu_close": _wav(_notes([1568.0, 1046.0], 0.05, 0.15)),
+		"hover": _wav(_notes([1760.0], 0.02, 0.06)),
+		"drink": _wav(_steam(rng)),
 	}

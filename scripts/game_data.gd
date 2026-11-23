@@ -72,19 +72,19 @@ const ENEMIES := {
 		"name": "Schleim", "level": 1, "hp": 30, "dmg": 4, "atk_rate": 1.4,
 		"xp": 12, "gold": 2, "speed": 1.8, "radius": 0.5, "height": 0.85,
 		"aggro": 7.0, "leash": 22.0, "respawn": 12.0,
-		"loot": [["iron", 0.3, 1]],
+		"loot": [["iron", 0.3, 1], ["potion_hp", 0.15, 1]],
 	},
 	"wolf": {
 		"name": "Wolf", "level": 3, "hp": 75, "dmg": 9, "atk_rate": 1.1,
 		"xp": 30, "gold": 5, "speed": 4.0, "radius": 0.6, "height": 1.1,
 		"aggro": 11.0, "leash": 28.0, "respawn": 18.0,
-		"loot": [["iron", 0.6, 1], ["gold", 0.15, 1]],
+		"loot": [["iron", 0.6, 1], ["gold", 0.15, 1], ["potion_hp", 0.2, 1], ["potion_mp", 0.1, 1]],
 	},
 	"golem": {
 		"name": "Steingolem", "level": 7, "hp": 700, "dmg": 20, "atk_rate": 2.0,
 		"xp": 300, "gold": 80, "speed": 2.0, "radius": 1.3, "height": 3.4,
 		"aggro": 13.0, "leash": 18.0, "respawn": 90.0,
-		"loot": [["gold", 1.0, 3], ["crystal", 1.0, 2]],
+		"loot": [["gold", 1.0, 3], ["crystal", 1.0, 2], ["potion_hp", 1.0, 2], ["potion_mp", 1.0, 2]],
 	},
 }
 
@@ -126,6 +126,24 @@ const COLOR_NAMES := ["Blau", "Pink", "Grün", "Orange", "Lila", "Türkis"]
 ## ---------------- Schmieden ----------------
 const ORES := {"iron": "Eisenerz", "gold": "Golderz", "crystal": "Kristall"}
 const ORE_PRICE := 15  # Greta verkauft Eisenerz für so viel Gold
+
+## ---------------- Inventar ----------------
+const INV_SLOTS := 40
+## type: material | consumable | weapon
+const ITEMS := {
+	"iron": {"name": "Eisenerz", "type": "material", "color": Color(0.6, 0.55, 0.52),
+		"desc": "Rohes Eisen. Zum Schmieden von Eisen- und Goldwaffen."},
+	"gold": {"name": "Golderz", "type": "material", "color": Color(1.0, 0.8, 0.25),
+		"desc": "Glänzendes Golderz. Für Gold- und Kristallwaffen."},
+	"crystal": {"name": "Kristall", "type": "material", "color": Color(0.4, 0.9, 1.0),
+		"desc": "Ein leuchtender Kristall aus dem Herzen des Golems."},
+	"potion_hp": {"name": "Heiltrank", "type": "consumable", "color": Color(0.95, 0.2, 0.3),
+		"desc": "Stellt 50 % deiner Lebenspunkte wieder her."},
+	"potion_mp": {"name": "Manatrank", "type": "consumable", "color": Color(0.25, 0.45, 1.0),
+		"desc": "Stellt 60 Mana wieder her."},
+	"weapon": {"name": "Waffe", "type": "weapon", "color": Color(0.8, 0.8, 0.85),
+		"desc": "Eine selbst geschmiedete Waffe."},
+}
 
 ## Waffentypen: Schaden-Multiplikator, Rückstoß, Grammatik für den Namen
 const WEAPON_TYPES := [
@@ -206,3 +224,9 @@ static func weapon_name(wtype: int, tier: int, q: float) -> String:
 	if q < 0.35:
 		return "Grob%s %s" % [e, n]
 	return n
+
+
+static func item_name(stack: Dictionary) -> String:
+	if stack.get("id", "") == "weapon":
+		return weapon_name(int(stack.get("wtype", 0)), int(stack.get("tier", 0)), float(stack.get("q", 0.5)))
+	return str(ITEMS.get(stack.get("id", ""), {}).get("name", "?"))

@@ -49,6 +49,39 @@ Zu zweit lohnt sich die Aufteilung: Eine Person verlangsamt mit Frostnova und sc
 Schild, die andere heilt und teilt mit Kettenblitz aus. Werte und neue Fähigkeiten stehen in
 `scripts/game_data.gd` unter `SKILLS`, die Wirkung in `scripts/server.gd` unter `on_cast`.
 
+## Menü und Inventar
+
+Das Spielmenü schwebt als halbtransparentes Fenster in der Welt vor dir. Es ist inspiriert von
+VR-MMO-Menüs aus Anime, hat aber ein eigenes Design.
+
+- **Öffnen:** Rechten Trigger gedrückt halten und die Hand zügig **nach unten wischen**
+  (oder die Menü-Taste an der linken Hand). Nach oben wischen schließt es wieder.
+  Am PC: **I**.
+- **Bedienen:** Aus der rechten Hand kommt ein Laserstrahl. Zeigen und mit dem **Trigger** klicken
+  (am PC: Fadenkreuz in der Bildmitte und Linksklick). Läufst du weg, schließt sich das Menü.
+- **Runde Symbole links:** Gegenstände · Ausrüstung · Fähigkeiten · Status · Schließen
+
+| Bereich | Was du dort machst |
+|---|---|
+| Gegenstände | Alle Gegenstände (40 Plätze): Erze, Tränke, Waffen. Benutzen, Materialisieren, Geben, Wegwerfen |
+| Ausrüstung | Aktuelle Waffe mit Schadenswerten. Waffen aus dem Inventar ausrüsten (die alte wandert ins Inventar) |
+| Fähigkeiten | Alle Fähigkeiten inkl. Claudes eigener (*) ansehen und als aktive wählen |
+| Status | Level, Werte, Aufgabe und alle Erfolge zum Abhaken |
+
+**Materialisieren:** Ein Trank erscheint mit einem Lichteffekt als **echte Flasche in deiner Hand**
+(Physik-Objekt). Führe sie zum **Mund**, um sie zu trinken. Loslassen (Grip) lässt sie fallen, mit Grip
+hebst du sie wieder auf. Liegengelassene Tränke kehren nach 30 Sekunden ins Inventar zurück.
+Am PC landet der Trank in der linken Hand, **T** trinkt ihn.
+
+**Geben:** Gibt einen Gegenstand (auch Waffen) direkt an den nächsten Mitspieler in bis zu 4 m
+Entfernung, also perfekt, um deiner Schwester einen Trank oder Erz zuzustecken.
+
+**Tränke:** Heiltrank (+50 % HP) und Manatrank (+60 Mana). Schleime und Wölfe lassen sie
+manchmal fallen, der Golem immer.
+
+Alles liegt auf dem Server (der Client zeigt nur an), wird mit dem Spielstand gespeichert,
+und alte Spielstände übernehmen ihre Erze automatisch ins Inventar.
+
 ## Schmieden (mit echter Physik)
 
 Neben Schmiedin Greta (rechts vom Lagerfeuer) steht eine Schmiede mit **Esse, Amboss, Hammer,
@@ -189,7 +222,9 @@ Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
 | Taste | Aktion |
 |---|---|
 | Linker Stick | Laufen (Stick drücken = Sprinten) |
-| Grip (links/rechts) | In der Schmiede: Hammer oder Rohling greifen (gedrückt halten, loslassen = fallen lassen/werfen) |
+| Grip (links/rechts) | Hammer, Rohling oder Trankflasche greifen (gedrückt halten, loslassen = fallen lassen/werfen) |
+| Rechter Trigger halten + nach unten wischen | Menü öffnen (nach oben wischen = schließen), auch Menü-Taste links |
+| Rechter Trigger (Menü offen) | Mit dem Laserstrahl klicken |
 | Rechter Stick links/rechts | Drehen in 30°-Schritten |
 | **Schwert schwingen** (rechte Hand) | Angreifen: je schneller, desto mehr Schaden |
 | Linker Trigger | Gewählte Fähigkeit wirken (aus der linken Hand) |
@@ -203,6 +238,7 @@ oder Server. Mit **A** verbindest du dich.
 
 **Am PC ohne Brille (zum Testen):** WASD laufen, Maus schauen, Linksklick Schwert,
 Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, 7/8/9/0 eigene Fähigkeiten, E sprechen bzw. Knopf am Bedienfeld drücken (anschauen), R Heimkehr, Shift sprinten.
+Menü: I (Fadenkreuz + Linksklick), T Trank trinken.
 Schmiede am PC: F Hammer greifen/loslassen, G Rohling greifen/loslassen, Linksklick mit Hammer
 = Hammerschlag.
 
@@ -323,6 +359,7 @@ scripts/
   skill_forge.gd       Erfolge -> Claude Code CLI -> eigene Fähigkeit (prüfen & laden)
   skill_api.gd         Begrenzte Schnittstelle für Claudes Fähigkeiten
   forge_station.gd     Physikalische Schmiede (Greifen, Hitze, Hämmern, Abschrecken)
+  menu_ui.gd           Schwebendes Menü: Inventar, Ausrüstung, Fähigkeiten, Status, Tränke
 server/                Startskripte für den Server
 Dockerfile, docker-compose.yml
 ```

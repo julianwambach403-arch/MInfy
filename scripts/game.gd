@@ -111,6 +111,30 @@ func forge_started(wtype: int, mat: int) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
+func req_item_action(slot: int, action: String) -> void:
+	if is_server:
+		server.on_item_action(_sender(), slot, action)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_held_consume(id: String) -> void:
+	if is_server:
+		server.on_held_consume(_sender(), id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_held_return(id: String) -> void:
+	if is_server:
+		server.on_held_return(_sender(), id)
+
+
+@rpc("authority", "call_remote", "reliable")
+func materialized(id: String) -> void:
+	if client:
+		client.on_materialized(id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func req_interact(npc: String) -> void:
 	if is_server:
 		server.on_interact(_sender(), npc)
