@@ -48,6 +48,71 @@ Zu zweit lohnt sich die Aufteilung: Eine Person verlangsamt mit Frostnova und sc
 Schild, die andere heilt und teilt mit Kettenblitz aus. Werte und neue Fähigkeiten stehen in
 `scripts/game_data.gd` unter `SKILLS`, die Wirkung in `scripts/server.gd` unter `on_cast`.
 
+## Erfolge und eigene Fähigkeiten von Claude
+
+Für jeden geschafften **Erfolg** programmiert **Claude** (über die Claude Code CLI auf deinem
+Server) eine **ganz eigene Fähigkeit**, die zum Erfolg und zu deiner Spielweise passt. Wer viel
+heilt, bekommt eher etwas Unterstützendes. Wer ständig mit dem Schwert zuschlägt, bekommt eher
+etwas Wuchtiges. Claude kennt dafür deine Spielstatistik (besiegte Gegner, Lieblingsfähigkeit,
+geheilte Lebenspunkte, Niederlagen …) und deine bisherigen eigenen Fähigkeiten, damit jede neu ist.
+
+| Erfolg | Bedingung |
+|---|---|
+| Erster Sieg | ersten Gegner besiegen |
+| Schleimjäger | 25 Schleime besiegen |
+| Wolfsbezwinger | 15 Wölfe besiegen |
+| Golembrecher | den Steingolem besiegen |
+| Retter des Dorfes | alle Aufgaben von Bruno erfüllen |
+| Erfahren / Veteran | Level 5 / Level 10 |
+| Schwertmeister | 300 Schwerttreffer |
+| Zauberweber | 100 Fähigkeiten einsetzen |
+| Lebensretter | insgesamt 1000 Lebenspunkte heilen |
+| Stehaufmännchen | 5-mal besiegt werden |
+| Goldhamster | 500 Gold auf einmal besitzen |
+| Kristallklinge | das Kristallschwert schmieden lassen |
+
+**So läuft es ab:**
+1. Du schaffst einen Erfolg und es erscheint „Claude schmiedet jetzt eine eigene Fähigkeit für dich …“.
+2. Der Server legt einen Arbeitsordner mit Anleitung, Schnittstellen-Beschreibung, Beispiel und
+   deiner Statistik an und startet `claude -p …` darin. Claude Code darf dort nur Dateien lesen und
+   schreiben (keine Shell, kein Internet) und schreibt die Fähigkeit als GDScript in `skill.gd`.
+3. Der Server prüft den Code (verbotene Befehle, Kompilierbarkeit, Pflichtangaben). Ist er
+   fehlerhaft, bekommt Claude die Fehlermeldung und einen zweiten Versuch.
+4. Die Fähigkeit wird sofort geladen und erscheint in deiner Fähigkeiten-Auswahl
+   (am Handgelenk mit `*` markiert, am PC mit den Tasten 7, 8, 9 und 0 wählbar).
+
+Das dauert meist 1–3 Minuten. Du kannst währenddessen normal weiterspielen. Bist du dann schon
+offline, bekommst du die Fähigkeit beim nächsten Login.
+
+**Sicherheit und Fairness:** Der Code von Claude darf ausschließlich über eine begrenzte
+Spiel-Schnittstelle (`scripts/skill_api.gd`) wirken. Schaden und Heilung pro Einsatz sind gedeckelt,
+Mana und Abklingzeit liegen in festen Grenzen, und Zugriffe auf Dateien, Netzwerk oder System
+werden vor dem Laden abgelehnt. Das schützt vor Fehlern und übermächtigen Fähigkeiten.
+Eine echte Sandbox gegen absichtlich bösartigen Code ist es nicht; für euren eigenen Server mit
+Claude als Programmierer ist das aber in Ordnung.
+
+**Wo liegt was?** Fertige Fähigkeiten liegen unter
+`…/app_userdata/MInfy/custom_skills/<name>/<erfolg>.gd`. Du kannst sie ansehen und von Hand
+ändern; sie werden beim nächsten Login neu geladen. Claudes Arbeitsordner liegen unter
+`…/app_userdata/MInfy/claude_work/`.
+
+### Claude Code auf dem Server einrichten
+
+1. [Node.js](https://nodejs.org) (Version 18 oder neuer) installieren.
+2. `npm install -g @anthropic-ai/claude-code`
+3. Einmal `claude` im Terminal starten und anmelden (Claude-Abo oder API-Schlüssel). Alternativ
+   die Umgebungsvariable `ANTHROPIC_API_KEY` setzen.
+4. Server wie gewohnt starten. Im Log steht `[Skill-Schmiede] Claude Code: an (claude)`.
+
+Einstellungen stehen in `scripts/config.gd` (`CLAUDE_ENABLED`, `CLAUDE_COMMAND`, `CLAUDE_MODEL`).
+Startparameter: `--claude=/pfad/zu/claude` oder `--no-claude`. Ohne Claude gibt es für jeden Erfolg
+eine einfache Ersatz-Fähigkeit („Echo: …“).
+**Docker:** Lege neben `docker-compose.yml` eine Datei `.env` mit
+`ANTHROPIC_API_KEY=sk-ant-…` an. Claude Code ist im Image bereits installiert.
+
+Hinweis: Jeder generierte Skill ist ein Claude-Code-Aufruf und verbraucht Nutzung deines
+Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
+
 ## Steuerung
 
 **Meta Quest 3**
@@ -67,7 +132,7 @@ Schild, die andere heilt und teilt mit Kettenblitz aus. Werte und neue Fähigkei
 oder Server. Mit **A** verbindest du dich.
 
 **Am PC ohne Brille (zum Testen):** WASD laufen, Maus schauen, Linksklick Schwert,
-Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, E sprechen, R Heimkehr, Shift sprinten.
+Rechtsklick oder Q Fähigkeit wirken, 1–6 oder Tab Fähigkeit wählen, 7/8/9/0 eigene Fähigkeiten, E sprechen, R Heimkehr, Shift sprinten.
 
 ---
 
@@ -183,6 +248,8 @@ scripts/
   world_gen.gd         Insel, Dorf, Wald, Ruinen (gleiche Welt auf Server und Client)
   lowpoly.gd           Baukasten für Low-Poly-Modelle
   sfx.gd               Synthetisierte Soundeffekte
+  skill_forge.gd       Erfolge -> Claude Code CLI -> eigene Fähigkeit (prüfen & laden)
+  skill_api.gd         Begrenzte Schnittstelle für Claudes Fähigkeiten
 server/                Startskripte für den Server
 Dockerfile, docker-compose.yml
 ```

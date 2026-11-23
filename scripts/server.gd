@@ -14,6 +14,7 @@ var snap_t := 0.0
 var stats_t := 0.0
 var save_t := 30.0
 var rng := RandomNumberGenerator.new()
+var forge = null
 
 
 func _ready() -> void:
@@ -207,6 +208,8 @@ func _kill_enemy(e: Dictionary, center: Vector3) -> void:
 		if p == null:
 			continue
 		p["gold"] = int(p["gold"]) + int(def["gold"])
+		_count(p, "kills_total")
+		_count(p, "kills_" + str(e["type"]))
 		Game.rpc_id(apid, "fx", 4, center)
 		_add_xp(apid, p, int(def["xp"]))
 		var qi := int(p["quest_idx"])
@@ -226,7 +229,7 @@ func _tick_projectiles(delta: float) -> void:
 		var pr: Dictionary = projectiles[id]
 		var dir: Vector3 = pr["dir"]
 		var pos: Vector3 = pr["pos"]
-		pos += dir * D.SPELL_SPEED * delta
+		pos += dir * float(pr.get("speed", D.SPELL_SPEED)) * delta
 		pr["life"] = float(pr["life"]) - delta
 		var hit := false
 		for e in enemies.values():
@@ -237,7 +240,8 @@ func _tick_projectiles(delta: float) -> void:
 			if _flat(pos, ep) < float(def["radius"]) + 0.35 and pos.y > ep.y - 0.3 and pos.y < ep.y + float(def["height"]) + 0.3:
 				var p = _player(pr["owner"])
 				var lvl: int = p["level"] if p != null else 1
-				_damage_enemy(e, roundi(D.spell_damage(lvl) * rng.randf_range(0.9, 1.1)), pr["owner"])
+				var mult: float = pr.get("mult", 1.0)
+				_damage_enemy(e, roundi(D.spell_damage(lvl) * mult * rng.randf_range(0.9, 1.1)), pr["owner"])
 				hit = true
 				break
 		if hit or pos.y < WG.height(pos.x, pos.z) or float(pr["life"]) <= 0.0:
@@ -299,6 +303,7 @@ func join(pid: int, pname: String, color: int) -> void:
 		"rh": sp + Vector3(0.3, 1.1, 0), "rh_q": Quaternion(),
 		"pos": sp, "last_swing": 0.0, "last_cast": 0.0, "last_hurt": -100.0,
 		"last_recall": -100.0, "dirty": true, "cds": {}, "shield_t": 0.0,
+		"record": {}, "achievements": [], "custom": [],
 	}
 	var path := _save_path(pname)
 	if FileAccess.file_exists(path):
@@ -307,18 +312,32 @@ func join(pid: int, pname: String, color: int) -> void:
 			for key in ["level", "xp", "gold", "sword", "quest_idx", "quest_progress"]:
 				p[key] = int(data.get(key, p[key]))
 			p["quest_active"] = bool(data.get("quest_active", false))
+			var rec = data.get("record", {})
+			if rec is Dictionary:
+				for k in rec:
+					p["record"][k] = int(rec[k])
+			var achs = data.get("achievements", [])
+			if achs is Array:
+				for a in achs:
+					p["achievements"].append(str(a))
 			p["hp"] = D.max_hp(int(p["level"]))
 	players[pid] = p
+	_load_custom_skills(p)
 	print("[Server] %s (Peer %d) betritt die Welt, Level %d." % [pname, pid, p["level"]])
 	Game.rpc_id(pid, "joined", pid, _stats(p))
 	Game.rpc_id(pid, "teleport", sp)
 	Game.rpc("msg", "%s hat die Welt betreten." % pname)
 	_save(p)
+	# Erfolge, deren Fähigkeit noch fehlt (z. B. nach Neustart), nachholen
+	for ach in D.ACHIEVEMENTS:
+		if p["achievements"].has(ach["id"]) and not FileAccess.file_exists(forge.skill_path(pname, ach["id"])):
+			forge.request(pname, ach, _context(p, ach))
 
 
 func _save(p: Dictionary) -> void:
 	var data := {}
-	for key in ["name", "level", "xp", "gold", "sword", "quest_idx", "quest_active", "quest_progress"]:
+	for key in ["name", "level", "xp", "gold", "sword", "quest_idx", "quest_active", "quest_progress",
+			"record", "achievements"]:
 		data[key] = p[key]
 	var f := FileAccess.open(_save_path(p["name"]), FileAccess.WRITE)
 	if f:
@@ -337,7 +356,15 @@ func _stats(p: Dictionary) -> Dictionary:
 		"sword_name": sw["name"], "quest_title": "", "quest_progress": p["quest_progress"],
 		"quest_count": 0, "quest_active": p["quest_active"], "quest_done": qi >= D.QUESTS.size(),
 		"dead": p["dead"], "shield": float(p["shield_t"]) > 0.0,
+		"achievements": (p["achievements"] as Array).size(), "achievements_total": D.ACHIEVEMENTS.size(),
+		"forging": forge != null and forge.is_forging_for(p["name"]),
 	}
+	var customs: Array = []
+	for c in p["custom"]:
+		var m: Dictionary = c["meta"]
+		customs.append({"name": m["name"], "desc": m["desc"], "color": m["color"], "mana": m["mana"],
+			"cd": m["cd"], "by_claude": c["by_claude"]})
+	d["custom_skills"] = customs
 	if qi < D.QUESTS.size():
 		var q: Dictionary = D.QUESTS[qi]
 		d["quest_title"] = q["title"]
@@ -374,17 +401,23 @@ func on_hit(pid: int, eid: int, power: float) -> void:
 	if now - float(p["last_swing"]) < 0.22:
 		return
 	p["last_swing"] = now
+	_count(p, "sword_hits")
 	var dmg := D.sword_damage(int(p["level"]), int(p["sword"])) * clampf(power, 0.6, 1.6)
 	_damage_enemy(e, roundi(dmg * rng.randf_range(0.9, 1.1)), pid)
 
 
 func on_cast(pid: int, skill: int, o: Vector3, dir: Vector3) -> void:
 	var p = _player(pid)
-	if p == null or p["dead"] or skill < 0 or skill >= D.SKILLS.size():
+	if p == null or p["dead"]:
 		return
 	if not o.is_finite() or not dir.is_finite() or dir.length() < 0.1:
 		return
 	if o.distance_to(p["head"]) > 1.8:
+		return
+	if skill >= D.CUSTOM_BASE:
+		_cast_custom(pid, p, skill, o, dir.normalized())
+		return
+	if skill < 0 or skill >= D.SKILLS.size():
 		return
 	var sk: Dictionary = D.SKILLS[skill]
 	var lvl: int = p["level"]
@@ -402,7 +435,7 @@ func on_cast(pid: int, skill: int, o: Vector3, dir: Vector3) -> void:
 			var id := next_proj_id
 			next_proj_id += 1
 			projectiles[id] = {"pos": o, "dir": dir, "owner": pid, "life": 3.0}
-			Game.rpc("fx_fireball", id, o, dir)
+			Game.rpc("fx_fireball", id, o, dir, Color(1.0, 0.5, 0.1), D.SPELL_SPEED)
 		"heal":
 			_skill_heal(p)
 		"frost":
@@ -420,6 +453,159 @@ func on_cast(pid: int, skill: int, o: Vector3, dir: Vector3) -> void:
 	p["mana"] = float(p["mana"]) - float(sk["mana"])
 	cds[skill] = now + float(sk["cd"])
 	p["dirty"] = true
+	_count(p, "casts")
+	_count(p, "use_" + str(sk["id"]))
+
+
+func _cast_custom(pid: int, p: Dictionary, skill: int, o: Vector3, dir: Vector3) -> void:
+	var idx := skill - D.CUSTOM_BASE
+	var customs: Array = p["custom"]
+	if idx < 0 or idx >= customs.size():
+		return
+	var c: Dictionary = customs[idx]
+	var m: Dictionary = c["meta"]
+	var now := _now()
+	var cds: Dictionary = p["cds"]
+	if now < float(cds.get(skill, 0.0)) or float(p["mana"]) < float(m["mana"]):
+		return
+	p["mana"] = float(p["mana"]) - float(m["mana"])
+	cds[skill] = now + float(m["cd"])
+	p["dirty"] = true
+	_count(p, "casts")
+	_count(p, "use_custom")
+	var api = load("res://scripts/skill_api.gd").new(self, pid, int(p["level"]))
+	Game.rpc("fx", 6, o)
+	c["instance"].cast(api, pid, o, dir)
+
+
+## Wird von der Skill-API benutzt (eigene Fähigkeiten).
+func heal_player(pid: int, amount: float, healer: int) -> void:
+	var other = _player(pid)
+	if other == null or other["dead"]:
+		return
+	var mh := D.max_hp(int(other["level"]))
+	var healed := minf(mh, float(other["hp"]) + amount) - float(other["hp"])
+	if healed <= 0.0:
+		return
+	other["hp"] = float(other["hp"]) + healed
+	other["dirty"] = true
+	var hp = _player(healer)
+	if hp != null:
+		_count(hp, "healed", roundi(healed))
+	var head: Vector3 = other["head"]
+	Game.rpc("fx_damage", head + Vector3(0, 0.35, 0), roundi(healed), 2)
+
+
+## Wird von der Skill-API benutzt (eigene Fähigkeiten).
+func spawn_projectile(pid: int, o: Vector3, dir: Vector3, speed: float, mult: float, color: Color) -> void:
+	var id := next_proj_id
+	next_proj_id += 1
+	projectiles[id] = {"pos": o, "dir": dir, "owner": pid, "life": 3.0, "speed": speed, "mult": mult}
+	Game.rpc("fx_fireball", id, o, dir, color, speed)
+
+
+# ======================= Erfolge & eigene Fähigkeiten =======================
+
+func _count(p: Dictionary, key: String, amount: int = 1) -> void:
+	var rec: Dictionary = p["record"]
+	rec[key] = int(rec.get(key, 0)) + amount
+	p["dirty"] = true
+
+
+func _stat_value(p: Dictionary, stat: String) -> int:
+	match stat:
+		"level":
+			return int(p["level"])
+		"gold":
+			return int(p["gold"])
+		"sword":
+			return int(p["sword"])
+		"quests":
+			return int(p["quest_idx"])
+	return int((p["record"] as Dictionary).get(stat, 0))
+
+
+func _check_achievements(pid: int, p: Dictionary) -> void:
+	var achs: Array = p["achievements"]
+	for ach in D.ACHIEVEMENTS:
+		if achs.has(ach["id"]):
+			continue
+		if _stat_value(p, ach["stat"]) >= int(ach["goal"]):
+			achs.append(ach["id"])
+			print("[Server] %s hat den Erfolg '%s' geschafft." % [p["name"], ach["name"]])
+			Game.rpc("msg", "%s hat den Erfolg '%s' geschafft!" % [p["name"], ach["name"]])
+			Game.rpc_id(pid, "msg", "Claude schmiedet jetzt eine eigene Fähigkeit für dich ...")
+			Game.rpc("fx", 2, p["head"])
+			_save(p)
+			forge.request(p["name"], ach, _context(p, ach))
+			p["dirty"] = true
+
+
+## Beschreibt für Claude, was der Spieler geschafft hat und wie er spielt.
+func _context(p: Dictionary, ach: Dictionary) -> String:
+	var rec: Dictionary = p["record"]
+	var fav := "keine"
+	var fav_n := 0
+	for sk in D.SKILLS:
+		var n := int(rec.get("use_" + str(sk["id"]), 0))
+		if n > fav_n:
+			fav_n = n
+			fav = "%s (%d-mal)" % [sk["name"], n]
+	var existing: Array = []
+	for c in p["custom"]:
+		existing.append(c["meta"]["name"])
+	var t := "# Erfolg geschafft\n\n"
+	t += "**%s**: %s\n\n" % [ach["name"], ach["desc"]]
+	t += "# Spieler\n\n"
+	t += "- Name: %s\n- Level: %d\n- Schwert: %s\n- Gold: %d\n" % [
+		p["name"], p["level"], D.SWORDS[int(p["sword"])]["name"], p["gold"]]
+	t += "- Erledigte Aufgaben: %d von %d\n\n" % [p["quest_idx"], D.QUESTS.size()]
+	t += "# Spielweise (Statistik)\n\n"
+	t += "- Besiegte Gegner: %d (Schleime %d, Wölfe %d, Golems %d)\n" % [
+		rec.get("kills_total", 0), rec.get("kills_slime", 0), rec.get("kills_wolf", 0), rec.get("kills_golem", 0)]
+	t += "- Schwerttreffer: %d\n- Eingesetzte Fähigkeiten: %d\n" % [rec.get("sword_hits", 0), rec.get("casts", 0)]
+	t += "- Lieblingsfähigkeit: %s\n" % fav
+	t += "- Geheilte Lebenspunkte (für andere und sich): %d\n" % rec.get("healed", 0)
+	t += "- Wie oft besiegt worden: %d\n" % rec.get("deaths", 0)
+	t += "- Mitspieler online: %d\n\n" % (players.size() - 1)
+	t += "# Bereits vorhandene eigene Fähigkeiten (mach etwas Neues!)\n\n"
+	t += ("- " + "\n- ".join(PackedStringArray(existing))) if not existing.is_empty() else "- noch keine"
+	t += "\n"
+	return t
+
+
+func _load_custom_skills(p: Dictionary) -> void:
+	var list: Array = []
+	for ach in D.ACHIEVEMENTS:
+		if not (p["achievements"] as Array).has(ach["id"]):
+			continue
+		var path: String = forge.skill_path(p["name"], ach["id"])
+		if not FileAccess.file_exists(path):
+			continue
+		var res: Dictionary = forge.validate(FileAccess.get_file_as_string(path))
+		if not res["ok"]:
+			print("[Server] Eigene Fähigkeit %s ungültig: %s" % [path, res["error"]])
+			continue
+		list.append({"ach": ach["id"], "instance": res["instance"], "meta": res["meta"],
+			"by_claude": not str(res["meta"]["name"]).begins_with("Echo: ")})
+	p["custom"] = list
+
+
+## Von der Skill-Schmiede aufgerufen, sobald eine Fähigkeit fertig ist.
+func on_custom_skill_ready(player_name: String, ach_id: String, by_claude: bool) -> void:
+	for pid in players:
+		var p = _player(pid)
+		if p == null or p["name"] != player_name:
+			continue
+		_load_custom_skills(p)
+		for c in p["custom"]:
+			if c["ach"] == ach_id:
+				var m: Dictionary = c["meta"]
+				var who := "Claude hat" if by_claude else "Die Schmiede hat"
+				Game.rpc_id(pid, "msg", "%s dir eine eigene Fähigkeit erschaffen: %s!" % [who, m["name"]])
+				Game.rpc_id(pid, "msg", m["desc"])
+				Game.rpc_id(pid, "fx", 5, p["head"])
+		p["dirty"] = true
 
 
 func _skill_heal(p: Dictionary) -> void:
@@ -435,6 +621,7 @@ func _skill_heal(p: Dictionary) -> void:
 		other["dirty"] = true
 		var head: Vector3 = other["head"]
 		Game.rpc("fx_damage", head + Vector3(0, 0.35, 0), roundi(healed), 2)
+		_count(p, "healed", roundi(healed))
 
 
 func _enemy_center(e: Dictionary) -> Vector3:
@@ -616,6 +803,7 @@ func _damage_player(pid: int, p: Dictionary, amount: float) -> void:
 	if float(p["hp"]) <= 0.0:
 		p["hp"] = 0.0
 		p["dead"] = true
+		_count(p, "deaths")
 		p["respawn_t"] = 4.0
 		var lost := int(p["gold"]) / 10
 		p["gold"] = int(p["gold"]) - lost
@@ -696,6 +884,7 @@ func _physics_process(delta: float) -> void:
 		for pid in players:
 			var p = _player(pid)
 			if p != null and p["dirty"]:
+				_check_achievements(pid, p)
 				p["dirty"] = false
 				Game.rpc_id(pid, "stats", _stats(p))
 	save_t -= delta

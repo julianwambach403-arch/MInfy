@@ -10,6 +10,14 @@ RUN apt-get update \
  && mv /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 /usr/local/bin/godot \
  && rm -rf /tmp/godot /tmp/godot.zip
 
+# Claude Code CLI: programmiert die eigenen Fähigkeiten für Erfolge.
+# Anmeldung per Umgebungsvariable ANTHROPIC_API_KEY (siehe docker-compose.yml).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nodejs npm \
+ && npm install -g @anthropic-ai/claude-code \
+ && npm cache clean --force \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /game
 COPY project.godot main.tscn ./
 COPY scripts ./scripts

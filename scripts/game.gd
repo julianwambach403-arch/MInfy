@@ -21,6 +21,11 @@ func start_server(port: int) -> void:
 	server = load("res://scripts/server.gd").new()
 	server.name = "Server"
 	add_child(server)
+	var forge = load("res://scripts/skill_forge.gd").new()
+	forge.name = "SkillForge"
+	forge.server = server
+	server.forge = forge
+	server.add_child(forge)
 	multiplayer.peer_connected.connect(server.on_peer_connected)
 	multiplayer.peer_disconnected.connect(server.on_peer_disconnected)
 	print("[Server] MInfy-Server läuft auf UDP-Port %d" % port)
@@ -138,9 +143,15 @@ func fx_line(a: Vector3, b: Vector3, kind: int) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func fx_fireball(id: int, o: Vector3, dir: Vector3) -> void:
+func fx_fireball(id: int, o: Vector3, dir: Vector3, color: Color, speed: float) -> void:
 	if client:
-		client.on_fireball(id, o, dir)
+		client.on_fireball(id, o, dir, color, speed)
+
+
+@rpc("authority", "call_remote", "reliable")
+func fx_custom(kind: int, a: Vector3, b: Vector3, color: Color, size: float, text: String) -> void:
+	if client:
+		client.on_custom_fx(kind, a, b, color, size, text)
 
 
 @rpc("authority", "call_remote", "reliable")

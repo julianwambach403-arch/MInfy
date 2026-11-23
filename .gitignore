@@ -5,3 +5,4 @@ android/
 *.aab
 *.import
 saves/
+.env

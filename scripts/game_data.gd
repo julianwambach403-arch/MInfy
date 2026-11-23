@@ -40,6 +40,27 @@ const SKILLS := [
 	},
 ]
 
+## Erfolge: Für jeden geschafften Erfolg programmiert Claude eine eigene Fähigkeit.
+## "stat" bezieht sich auf die Spielstatistik des Spielers (siehe server.gd).
+const ACHIEVEMENTS := [
+	{"id": "first_blood", "name": "Erster Sieg", "desc": "Besiege deinen ersten Gegner.", "stat": "kills_total", "goal": 1},
+	{"id": "slime_hunter", "name": "Schleimjäger", "desc": "Besiege 25 Schleime.", "stat": "kills_slime", "goal": 25},
+	{"id": "wolf_slayer", "name": "Wolfsbezwinger", "desc": "Besiege 15 Wölfe.", "stat": "kills_wolf", "goal": 15},
+	{"id": "golem_breaker", "name": "Golembrecher", "desc": "Besiege den Steingolem.", "stat": "kills_golem", "goal": 1},
+	{"id": "village_hero", "name": "Retter des Dorfes", "desc": "Erfülle alle Aufgaben von Bruno.", "stat": "quests", "goal": 3},
+	{"id": "level5", "name": "Erfahren", "desc": "Erreiche Level 5.", "stat": "level", "goal": 5},
+	{"id": "level10", "name": "Veteran", "desc": "Erreiche Level 10.", "stat": "level", "goal": 10},
+	{"id": "swordmaster", "name": "Schwertmeister", "desc": "Triff 300-mal mit dem Schwert.", "stat": "sword_hits", "goal": 300},
+	{"id": "spellweaver", "name": "Zauberweber", "desc": "Setze 100 Fähigkeiten ein.", "stat": "casts", "goal": 100},
+	{"id": "lifesaver", "name": "Lebensretter", "desc": "Heile insgesamt 1000 Lebenspunkte.", "stat": "healed", "goal": 1000},
+	{"id": "phoenix", "name": "Stehaufmännchen", "desc": "Werde 5-mal besiegt und steh wieder auf.", "stat": "deaths", "goal": 5},
+	{"id": "goldhoarder", "name": "Goldhamster", "desc": "Besitze 500 Gold auf einmal.", "stat": "gold", "goal": 500},
+	{"id": "crystal_blade", "name": "Kristallklinge", "desc": "Lass dir das Kristallschwert schmieden.", "stat": "sword", "goal": 3},
+]
+
+## Eigene Fähigkeiten haben Nummern ab CUSTOM_BASE (100, 101, ...).
+const CUSTOM_BASE := 100
+
 const ENEMY_TYPES := ["slime", "wolf", "golem"]
 
 const ENEMIES := {

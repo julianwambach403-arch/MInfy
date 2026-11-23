@@ -337,20 +337,43 @@ func on_join_failed(reason: String) -> void:
 
 func on_stats(st: Dictionary) -> void:
 	var old_sword: int = stats.get("sword", -1)
-	var old_level: int = stats.get("level", 0)
 	stats = st
 	if int(st["sword"]) != old_sword:
 		LP.set_sword_tier(sword, int(st["sword"]))
-	if int(st["level"]) != old_level:
-		var sk: Dictionary = D.SKILLS[skill_idx]
-		if int(sk["level"]) > int(st["level"]):
-			skill_idx = 0
-		_update_orb()
+	if not _skill_list().has(skill_idx):
+		skill_idx = 0
+	_update_orb()
 	_refresh_wrist()
 
 
 func _skill_ready_in(i: int) -> float:
 	return maxf(float(skill_cds.get(i, 0.0)), 0.0)
+
+
+## Infos zu einer Fähigkeit: 0..5 = Standard, ab 100 = eigene (von Claude).
+func _skill_info(i: int) -> Dictionary:
+	if i >= D.CUSTOM_BASE:
+		var customs: Array = stats.get("custom_skills", [])
+		var ci := i - D.CUSTOM_BASE
+		if ci < customs.size():
+			var c: Dictionary = customs[ci]
+			return {"id": "custom", "name": c["name"], "desc": c["desc"], "color": c["color"],
+				"mana": c["mana"], "cd": c["cd"], "level": 0, "custom": true}
+		return D.SKILLS[0]
+	return D.SKILLS[clampi(i, 0, D.SKILLS.size() - 1)]
+
+
+## Alle Fähigkeiten, die der Spieler gerade benutzen kann.
+func _skill_list() -> Array:
+	var out: Array = []
+	var lvl: int = stats.get("level", 1)
+	for i in D.SKILLS.size():
+		if int(D.SKILLS[i]["level"]) <= lvl:
+			out.append(i)
+	var customs: Array = stats.get("custom_skills", [])
+	for i in customs.size():
+		out.append(D.CUSTOM_BASE + i)
+	return out
 
 
 func _refresh_wrist() -> void:
@@ -360,17 +383,18 @@ func _refresh_wrist() -> void:
 	var t := "%s  -  Level %d\nHP %d/%d    Mana %d/%d\nEP %d/%d    Gold %d\n%s" % [
 		st["name"], st["level"], st["hp"], st["max_hp"], st["mana"], st["max_mana"],
 		st["xp"], st["xp_need"], st["gold"], st["sword_name"]]
-	var sk: Dictionary = D.SKILLS[skill_idx]
+	var sk := _skill_info(skill_idx)
 	var wait := _skill_ready_in(skill_idx)
 	var status := "bereit" if wait <= 0.0 else "%.0fs" % ceilf(wait)
 	if float(st["mana"]) < float(sk["mana"]):
 		status = "zu wenig Mana"
-	t += "\nFähigkeit: %s (%d Mana) - %s" % [sk["name"], int(sk["mana"]), status]
-	var unlocked := 0
-	for s2 in D.SKILLS:
-		if int(s2["level"]) <= int(st["level"]):
-			unlocked += 1
-	t += "\n%d/%d Fähigkeiten freigeschaltet" % [unlocked, D.SKILLS.size()]
+	var mark := "*" if sk.get("custom", false) else ""
+	t += "\nFähigkeit: %s%s (%d Mana) - %s" % [mark, sk["name"], int(sk["mana"]), status]
+	var list := _skill_list()
+	t += "\n%d Fähigkeiten, davon %d eigene" % [list.size(), (st.get("custom_skills", []) as Array).size()]
+	t += "\nErfolge: %d/%d" % [st.get("achievements", 0), st.get("achievements_total", 0)]
+	if st.get("forging", false):
+		t += "\nClaude schmiedet eine Fähigkeit ..."
 	if st.get("shield", false):
 		t += "\nSCHUTZSCHILD AKTIV"
 	if st["quest_done"]:
@@ -386,28 +410,30 @@ func _refresh_wrist() -> void:
 
 
 func _update_orb() -> void:
-	var sk: Dictionary = D.SKILLS[skill_idx]
+	var sk := _skill_info(skill_idx)
 	orb.material_override = LP.mat(sk["color"], 3.0)
 
 
 func _select_skill(dir: int) -> void:
-	var lvl: int = stats.get("level", 1)
-	for i in D.SKILLS.size():
-		skill_idx = wrapi(skill_idx + dir, 0, D.SKILLS.size())
-		if int(D.SKILLS[skill_idx]["level"]) <= lvl:
-			break
-	_choose_skill(skill_idx)
+	var list := _skill_list()
+	if list.is_empty():
+		return
+	var pos := list.find(skill_idx)
+	_choose_skill(list[wrapi(pos + dir, 0, list.size())])
 
 
 func _choose_skill(i: int) -> void:
-	var sk: Dictionary = D.SKILLS[i]
-	if int(sk["level"]) > int(stats.get("level", 1)):
-		_say("%s wird mit Level %d freigeschaltet." % [sk["name"], sk["level"]])
+	if not _skill_list().has(i):
+		if i < D.SKILLS.size():
+			var locked: Dictionary = D.SKILLS[i]
+			_say("%s wird mit Level %d freigeschaltet." % [locked["name"], locked["level"]])
 		return
+	var sk := _skill_info(i)
 	skill_idx = i
 	_update_orb()
 	_refresh_wrist()
-	_say("Fähigkeit: %s - %s" % [sk["name"], sk["desc"]])
+	var prefix := "Eigene Fähigkeit" if sk.get("custom", false) else "Fähigkeit"
+	_say("%s: %s - %s" % [prefix, sk["name"], sk["desc"]])
 	_haptic(lhand, 0.3, 0.05)
 
 
@@ -547,6 +573,10 @@ func _ring(pos: Vector3, color: Color, radius: float) -> void:
 
 
 func on_line(a: Vector3, b: Vector3, _kind: int) -> void:
+	_bolt(a, b, Color(0.8, 0.75, 1.0))
+
+
+func _bolt(a: Vector3, b: Vector3, color: Color) -> void:
 	var length := a.distance_to(b)
 	if length < 0.05:
 		return
@@ -561,24 +591,24 @@ func on_line(a: Vector3, b: Vector3, _kind: int) -> void:
 	for i in pts.size() - 1:
 		var p0: Vector3 = pts[i]
 		var p1: Vector3 = pts[i + 1]
-		var seg := LP.box(Vector3(0.05, 0.05, p0.distance_to(p1)), Color(0.8, 0.75, 1.0), Vector3.ZERO, 4.0)
+		var seg := LP.box(Vector3(0.05, 0.05, p0.distance_to(p1)), color, Vector3.ZERO, 4.0)
 		root.add_child(seg)
 		seg.global_position = (p0 + p1) / 2.0
 		if absf((p1 - p0).normalized().dot(Vector3.UP)) < 0.99:
 			seg.look_at(p1, Vector3.UP)
 		else:
 			seg.look_at(p1, Vector3.RIGHT)
-	LP.burst(fx_root, b, Color(0.8, 0.75, 1.0), 16, 3.0, 1.0, 0.4)
+	LP.burst(fx_root, b, color, 16, 3.0, 1.0, 0.4)
 	_play("hit", b)
 	get_tree().create_timer(0.25).timeout.connect(root.queue_free)
 
 
-func on_fireball(id: int, o: Vector3, dir: Vector3) -> void:
+func on_fireball(id: int, o: Vector3, dir: Vector3, color: Color, speed: float) -> void:
 	var n := Node3D.new()
 	fx_root.add_child(n)
 	n.global_position = o
-	n.add_child(LP.sphere(0.14, Color(1.0, 0.5, 0.1), Vector3.ZERO, 8, 4.0))
-	n.add_child(LP.sphere(0.08, Color(1.0, 0.9, 0.5), Vector3.ZERO, 6, 4.0))
+	n.add_child(LP.sphere(0.14, color, Vector3.ZERO, 8, 4.0))
+	n.add_child(LP.sphere(0.08, color.lightened(0.6), Vector3.ZERO, 6, 4.0))
 	var trail := CPUParticles3D.new()
 	trail.amount = 24
 	trail.lifetime = 0.35
@@ -591,18 +621,44 @@ func on_fireball(id: int, o: Vector3, dir: Vector3) -> void:
 	trail.scale_amount_max = 1.2
 	var m := BoxMesh.new()
 	m.size = Vector3.ONE * 0.07
-	m.material = LP.mat(Color(1.0, 0.6, 0.15), 3.0)
+	m.material = LP.mat(color.lightened(0.2), 3.0)
 	trail.mesh = m
 	n.add_child(trail)
-	fireballs[id] = {"node": n, "dir": dir.normalized(), "life": 3.5}
+	fireballs[id] = {"node": n, "dir": dir.normalized(), "life": 3.5, "speed": speed, "color": color}
 	_play("cast", o)
 
 
+## Effekte, die von eigenen (Claude-)Fähigkeiten ausgelöst werden.
+func on_custom_fx(kind: int, a: Vector3, b: Vector3, color: Color, size: float, text: String) -> void:
+	match kind:
+		0:
+			LP.burst(fx_root, a, color, int(clampf(20.0 * size, 8.0, 80.0)), 3.0 * size, size, 0.8)
+		1:
+			_ring(a, color, size)
+		2:
+			_bolt(a, b, color)
+		3:
+			var l := LP.label(text, 64, 0.004)
+			l.modulate = color
+			fx_root.add_child(l)
+			l.global_position = a
+			var tw := l.create_tween()
+			tw.set_parallel(true)
+			tw.tween_property(l, "position", l.position + Vector3(0, 1.0, 0), 1.5)
+			tw.tween_property(l, "modulate:a", 0.0, 1.5)
+			tw.tween_property(l, "outline_modulate:a", 0.0, 1.5)
+			tw.chain().tween_callback(l.queue_free)
+		4:
+			_play(text, a)
+
+
 func on_explode(id: int, pos: Vector3) -> void:
+	var col := Color(1.0, 0.55, 0.1)
 	if fireballs.has(id):
+		col = fireballs[id].get("color", col)
 		(fireballs[id]["node"] as Node3D).queue_free()
 		fireballs.erase(id)
-	LP.burst(fx_root, pos, Color(1.0, 0.55, 0.1), 30, 4.0, 1.5, 0.6)
+	LP.burst(fx_root, pos, col, 30, 4.0, 1.5, 0.6)
 	_play("explode", pos)
 
 
@@ -782,7 +838,7 @@ func _desktop_swing() -> void:
 func _cast() -> void:
 	if stats.is_empty() or stats.get("dead", false):
 		return
-	var sk: Dictionary = D.SKILLS[skill_idx]
+	var sk := _skill_info(skill_idx)
 	if _skill_ready_in(skill_idx) > 0.0 or cast_cd > 0.0:
 		return
 	if float(stats.get("mana", 0)) < float(sk["mana"]):
@@ -877,6 +933,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					_cast()
 				KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6:
 					_choose_skill(int(ke.keycode - KEY_1))
+				KEY_7, KEY_8, KEY_9, KEY_0:
+					var ci := 9 if ke.keycode == KEY_0 else int(ke.keycode - KEY_7)
+					_choose_skill(D.CUSTOM_BASE + ci)
 				KEY_TAB:
 					_select_skill(1)
 	var mb := event as InputEventMouseButton
@@ -1086,7 +1145,7 @@ func _update_fireballs(delta: float) -> void:
 		var f: Dictionary = fireballs[id]
 		var n: Node3D = f["node"]
 		var dir: Vector3 = f["dir"]
-		n.global_position += dir * D.SPELL_SPEED * delta
+		n.global_position += dir * float(f.get("speed", D.SPELL_SPEED)) * delta
 		f["life"] = float(f["life"]) - delta
 		if float(f["life"]) <= 0.0:
 			n.queue_free()
