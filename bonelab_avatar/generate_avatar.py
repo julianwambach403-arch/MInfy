@@ -147,17 +147,28 @@ def eye_texture(n=512):
     return save_png("eyes", rgba), save_png("eyes_emission", em)
 
 
-def hair_texture(w=256, h=512):
+def hair_texture(w=512, h=512):
+    """Matte Anime-Haare: feine Strähnenlinien, dunkler Ansatz, gemalter Glanzring."""
     v, u = np.mgrid[0:1:h * 1j, 0:1:w * 1j]              # v = 0 Ansatz .. 1 Spitze
-    dark, mid, light = np.array((0.04, 0.45, 0.52)), np.array((0.10, 0.76, 0.74)), \
-        np.array((0.62, 0.98, 0.90))
-    t = np.clip(v * 1.3, 0, 1)[..., None]
+    dark, mid, light = np.array((0.03, 0.36, 0.45)), np.array((0.09, 0.68, 0.68)), \
+        np.array((0.55, 0.93, 0.86))
+    t = np.clip(v * 1.6, 0, 1)[..., None] ** 0.8
     col = dark * (1 - t) + mid * t
-    streak = periodic_noise(256, 1.2, 9)[0][(u[0] * 255).astype(int)][None, :]
-    col = col * (0.85 + 0.3 * streak[..., None])
-    shine = np.exp(-((v - 0.35) / 0.05) ** 2)[..., None] * (streak[..., None] > 0.45)
-    col = col * (1 - shine) + light * shine
-    tip = np.clip((v - 0.75) / 0.25, 0, 1)[..., None] * 0.45
+    # feine Strähnen: mehrere Frequenzen quer zur Haarrichtung (kachelbar in u)
+    lines = np.zeros(w)
+    for f, a in ((4, 0.5), (11, 0.3), (29, 0.25), (67, 0.15)):
+        ph = rng.uniform(0, 2 * np.pi, 3)
+        x = np.linspace(0, 2 * np.pi, w, endpoint=False)
+        lines += a * np.sin(f * x + ph[0] + 0.6 * np.sin(3 * x + ph[1]))
+    lines = (lines - lines.min()) / (lines.max() - lines.min())
+    col = col * (0.72 + 0.4 * lines[None, :, None])
+    # Glanzring mit gezackter Kante, nur auf "erhobenen" Strähnen
+    edge = 0.30 + 0.012 * np.sin(np.linspace(0, 2 * np.pi * 3, w))[None, :]
+    band = (np.abs(v - edge) < 0.02 * lines[None, :]) & (lines[None, :] > 0.5)
+    col[band] = col[band] * 0.35 + light * 0.65
+    # dunkle Linien zwischen Strähnen (gibt Tiefe statt Plastik-Glanz)
+    col = col * np.where(lines[None, :, None] < 0.12, 0.6, 1.0)
+    tip = np.clip((v - 0.8) / 0.2, 0, 1)[..., None] * 0.35
     col = col * (1 - tip) + light * tip                                   # helle Spitzen
     return save_png("hair", np.concatenate([col, np.ones((h, w, 1))], axis=2))
 
@@ -198,17 +209,41 @@ def material(name, tex, emission=None, strength=1.0, rough=0.65):
     return m
 
 
+def outline_material():
+    """Inverted-Hull-Kontur: nur die nach außen gedrehten Rückseiten sind sichtbar.
+    In Unity reicht dafür ein schwarzes URP/Unlit-Material (Backface-Culling ist Standard)."""
+    m = bpy.data.materials.new("Outline")
+    m.use_backface_culling = True
+    m.diffuse_color = (0.02, 0.05, 0.08, 1)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    em = nt.nodes.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value = (0.02, 0.05, 0.08, 1)
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+    nt.links.new(geo.outputs["Backfacing"], mix.inputs[0])
+    nt.links.new(em.outputs[0], mix.inputs[1])
+    nt.links.new(tr.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+    return m
+
+
 MATS = {
-    "Skin_Galaxy": material("Skin_Galaxy", GAL, GAL_E, 0.6, 0.45),
+    "Skin_Galaxy": material("Skin_Galaxy", GAL, GAL_E, 0.6, 0.6),
     "Eyes": material("Eyes", EYE, EYE_E, 2.5, 0.3),
-    "Hair": material("Hair", HAIR, rough=0.4),
+    "Hair": material("Hair", HAIR, rough=0.8),
     "Hoodie": material("Hoodie", HOODIE, rough=0.9),
     "Hoodie_Trim": material("Hoodie_Trim", TRIM, rough=0.9),
     "Pants": material("Pants", PANTS, rough=0.9),
     "Shoes": material("Shoes", SHOES, rough=0.6),
     "Dark": material("Dark", DARK, rough=0.5),
     "Zipper": material("Zipper", ZIP, rough=0.3),
+    "Outline": outline_material(),
 }
+OUTLINE = "--no-outline" not in argv
 
 
 # ================================================================ Skelett
@@ -304,10 +339,13 @@ def bind(obj):
 class Builder:
     def __init__(self):
         self.v, self.f, self.mat, self.uv = [], [], [], []
+        self.vg, self.vt = [], []      # Haar-Gruppe und Position entlang der Strähne (0..1)
 
-    def add(self, verts, faces, mat, uvs=None):
+    def add(self, verts, faces, mat, uvs=None, group=None, vt=None):
         o = len(self.v)
         self.v += [tuple(p) for p in verts]
+        self.vg += [group] * len(verts)
+        self.vt += list(vt) if vt is not None else [0.0] * len(verts)
         for i, f in enumerate(faces):
             self.f.append(tuple(o + k for k in f))
             self.mat.append(mat)
@@ -340,6 +378,37 @@ def fix_normals(bm):
         f.normal_update()
         if f.material_index == eye and f.normal.y > 0:
             f.normal_flip()
+
+
+NO_OUTLINE = ("Eyes", "Dark", "Zipper", "Outline")
+
+
+def add_outline(bm, width):
+    """Hängt eine leicht vergrößerte Hülle mit umgedrehten Flächen an (Anime-Kontur).
+    Gibt für jeden neuen Vertex den Index des Original-Vertex zurück (für die Gewichte)."""
+    if not OUTLINE:
+        return []
+    skip = {MAT_ORDER.index(m) for m in NO_OUTLINE}
+    bm.normal_update()
+    bm.verts.index_update()
+    bm.verts.ensure_lookup_table()
+    faces = [f for f in bm.faces if f.material_index not in skip]
+    verts = sorted({v for f in faces for v in f.verts}, key=lambda v: v.index)
+    new = {}
+    src = []
+    for v in verts:
+        src.append(v.index)
+        new[v.index] = bm.verts.new(v.co + v.normal * width)
+    om = MAT_ORDER.index("Outline")
+    for f in faces:
+        try:
+            nf = bm.faces.new([new[v.index] for v in reversed(f.verts)])
+        except ValueError:
+            continue
+        nf.material_index = om
+        nf.smooth = True
+    bm.verts.index_update()
+    return src
 
 
 def box_uv(bm, scale=3.0, only_tagged=True):
@@ -401,9 +470,16 @@ def catmull(pts, n):
     return out
 
 
-def strand(B, pts, width, thick, nrm, mat, seg=14, ring=6, taper=1.0, uv=True):
-    """Spitz zulaufende, flache Haarsträhne (oder Ohr) entlang der Punkte."""
+CHAIN_BONES = {}   # Gruppe -> Anzahl Knochen
+CHAIN_PATHS = {}   # Gruppe -> Liste der Mittellinien aller Strähnen dieser Gruppe
+
+
+def strand(B, pts, width, thick, nrm, mat, seg=14, ring=6, taper=1.0, uv=True, group=None):
+    """Spitz zulaufende, flache Haarsträhne (oder Ohr) entlang der Punkte.
+    group: Name der Knochenkette, an der die Strähne hängt (None = fest am Kopf)."""
     C = catmull(pts, seg)
+    if group:
+        CHAIN_PATHS.setdefault(group, []).append(np.array(C))
     nrm = np.array(nrm, float)
     verts, faces, uvs = [], [], []
     for k, p in enumerate(C[:-1]):
@@ -436,7 +512,8 @@ def strand(B, pts, width, thick, nrm, mat, seg=14, ring=6, taper=1.0, uv=True):
                     ((r + 0.5) / ring, 1.0)])
     faces.append(tuple(range(ring))[::-1])
     uvs.append([(0.5, 0.0)] * ring)
-    B.add(verts, faces, mat, uvs if uv else None)
+    vt = [k / seg for k in range(seg) for _ in range(ring)] + [1.0]
+    B.add(verts, faces, mat, uvs if uv else None, group=group, vt=vt)
 
 
 # ================================================================ Kopf
@@ -504,7 +581,9 @@ for x, z in ((-0.016, 1.546), (0.024, 1.541)):
 for s in (1, -1):
     strand(head, [(s * 0.100, 0.015, 1.612), (s * 0.170, 0.030, 1.640),
                   (s * 0.250, 0.045, 1.690), (s * 0.325, 0.055, 1.735)],
-           0.062, 0.013, (0, -1, 0.25), "Skin_Galaxy", seg=16, ring=8, taper=1.1, uv=False)
+           0.062, 0.013, (0, -1, 0.25), "Skin_Galaxy", seg=16, ring=8, taper=1.1, uv=False,
+           group="Ear_L" if s > 0 else "Ear_R")
+CHAIN_BONES.update(Ear_L=2, Ear_R=2)
 
 
 # ================================================================ Haare
@@ -518,8 +597,9 @@ def cap_keep(p):
     return p[2] > 0.30 * (-p[1]) - 0.08 + (0.25 if p[1] < -0.6 and p[2] < 0.55 else 0)
 
 
+hair = Builder()
 cv, cf = ellipsoid(HC + np.array((0, 0.004, 0.006)), HR * 1.07, 48, 32, keep=cap_keep)
-head.add(cv, cf, "Hair", [[(0.5, 0.1)] * len(f) for f in cf])
+hair.add(cv, cf, "Hair", [[(0.5, 0.1)] * len(f) for f in cf])
 
 R = np.random.default_rng(3)
 
@@ -533,7 +613,7 @@ for az in range(0, 360, 24):
     if -50 < ((a + 180) % 360) - 180 < 50:      # vorne: in den Pony übergehen lassen
         continue
     tip = p3 + out * R.uniform(0.03, 0.07) + np.array((0, 0, -0.02))
-    strand(head, [p1, p2, p3, tip], 0.065, 0.016, d1, "Hair", taper=0.9)
+    strand(hair, [p1, p2, p3, tip], 0.065, 0.016, d1, "Hair", taper=0.9)
 
 # Pony (über Stirn und teils über die Augen)
 bangs = [(-0.088, 1.610), (-0.058, 1.668), (-0.030, 1.680), (0.006, 1.612),
@@ -543,7 +623,9 @@ for x, zt in bangs:
     mid = np.array((x * 1.05, -0.112, 1.735))
     tip = np.array((x * 1.18 + 0.008, -0.142, zt))
     lo = np.array((x * 1.12 + 0.004, -0.137, (mid[2] + zt) / 2 + 0.01))
-    strand(head, [root, mid, lo, tip], 0.034, 0.008, (0, -1, 0.3), "Hair", taper=1.0)
+    g = "Bangs_R" if x < -0.045 else "Bangs_L" if x > 0.045 else "Bangs_C"
+    strand(hair, [root, mid, lo, tip], 0.034, 0.008, (0, -1, 0.3), "Hair", taper=1.0, group=g)
+CHAIN_BONES.update(Bangs_L=2, Bangs_C=2, Bangs_R=2)
 
 # Seitliche, abstehende Strähnen (wie im Bild auf Höhe der Ohren/Wangen)
 for layer, (el, drop) in enumerate(((22, -0.03), (0, -0.06))):
@@ -554,8 +636,10 @@ for layer, (el, drop) in enumerate(((22, -0.03), (0, -0.06))):
         L = R.uniform(0.11, 0.16) * (0.75 if 140 < a < 220 else 1.0)
         pts = [root, root + out * L * 0.45 + (0, 0, drop * 0.5),
                root + out * L * 0.85 + (0, 0, drop), root + out * L + (0, 0, drop + 0.015)]
-        strand(head, pts, 0.085, 0.022, np.array((0, 0, 1.0)) * 0.6 + out * 0.4, "Hair",
-               ring=8, taper=1.1)
+        g = "Side_L" if a < 130 else "Side_R" if a > 230 else "Side_Back"
+        strand(hair, pts, 0.085, 0.022, np.array((0, 0, 1.0)) * 0.6 + out * 0.4, "Hair",
+               ring=8, taper=1.1, group=g)
+CHAIN_BONES.update(Side_L=2, Side_R=2, Side_Back=2)
 
 # Lange Strähnen, die das Gesicht einrahmen (bis zur Brust)
 for s in (1, -1):
@@ -564,19 +648,79 @@ for s in (1, -1):
         pts = [root, np.array((s * (0.112 + dx), -0.105, 1.63)),
                np.array((s * (0.110 + dx), -0.085, 1.50)),
                np.array((s * (0.098 + dx), -0.070, zt))]
-        strand(head, pts, w, 0.010, (s * 0.4, -1, 0), "Hair", seg=18, taper=0.9)
+        strand(hair, pts, w, 0.010, (s * 0.4, -1, 0), "Hair", seg=18, taper=0.9,
+               group="Front_L" if s > 0 else "Front_R")
+CHAIN_BONES.update(Front_L=3, Front_R=3)
 
 # Hinterkopf / Nacken
 for az in range(120, 250, 16):
     root, d = sp(az, -5, 1.02)
     out = np.array((math.sin(math.radians(az)), -math.cos(math.radians(az)), 0))
     pts = [root, root + out * 0.04 + (0, 0, -0.07), root + out * 0.07 + (0, 0, -0.14)]
-    strand(head, pts, 0.06, 0.015, out, "Hair", taper=0.9)
+    strand(hair, pts, 0.06, 0.015, out, "Hair", taper=0.9,
+           group="Nape_L" if az < 185 else "Nape_R")
+CHAIN_BONES.update(Nape_L=2, Nape_R=2)
 
 # Antenne / Ahoge
-strand(head, [(0.005, 0.005, 1.765), (0.0, 0.0, 1.85), (0.03, 0.005, 1.915),
+strand(hair, [(0.005, 0.005, 1.765), (0.0, 0.0, 1.85), (0.03, 0.005, 1.915),
               (0.085, 0.010, 1.905), (0.11, 0.012, 1.86)],
-       0.028, 0.007, (0, -1, 0), "Hair", seg=18, taper=0.9)
+       0.028, 0.007, (0, -1, 0), "Hair", seg=18, taper=0.9, group="Ahoge")
+CHAIN_BONES["Ahoge"] = 3
+
+
+# ================================================================ Haar-Rig
+def chain_bone(g, k):
+    return f"{g}_{k + 1}" if g.startswith("Ear") else f"Hair_{g}_{k + 1}"
+
+
+bpy.context.view_layer.objects.active = rig
+bpy.ops.object.mode_set(mode="EDIT")
+for g, n in CHAIN_BONES.items():
+    paths = CHAIN_PATHS[g]
+    m = min(len(p) for p in paths)
+    avg = np.mean([p[np.linspace(0, len(p) - 1, m).round().astype(int)] for p in paths], axis=0)
+    parent = arm_data.edit_bones["Head"]
+    for k in range(n):
+        a = avg[round(k / n * (m - 1))]
+        b = avg[round((k + 1) / n * (m - 1))]
+        eb = arm_data.edit_bones.new(chain_bone(g, k))
+        eb.head, eb.tail = Vector(a), Vector(b)
+        eb.parent = parent
+        eb.use_connect = k > 0
+        parent = eb
+bpy.ops.object.mode_set(mode="OBJECT")
+print("Haar-/Ohr-Knochen:", sum(CHAIN_BONES.values()))
+
+
+def chain_weights(obj, B, src):
+    """Gewichte entlang der Strähne: Wurzel am Kopf, dann Knochen für Knochen weich überblendet."""
+    vg, vt = list(B.vg), list(B.vt)
+    for i in src:                         # Kontur-Hülle erbt die Gewichte des Originals
+        vg.append(vg[i])
+        vt.append(vt[i])
+    groups = {}
+
+    def add(name, idx, w):
+        if name not in groups:
+            groups[name] = obj.vertex_groups.new(name=name)
+        groups[name].add([idx], w, "REPLACE")
+
+    for i, (g, t) in enumerate(zip(vg, vt)):
+        if g is None:
+            add("Head", i, 1.0)
+            continue
+        n = CHAIN_BONES[g]
+        x = t * n
+        k = min(int(x), n - 1)
+        f = x - k
+        ws = {chain_bone(g, k): 1.0}
+        if f < 0.25:
+            ws["Head" if k == 0 else chain_bone(g, k - 1)] = (0.25 - f) / 0.5
+        elif f > 0.75 and k < n - 1:
+            ws[chain_bone(g, k + 1)] = (f - 0.75) / 0.5
+        tot = sum(ws.values())
+        for name, w in ws.items():
+            add(name, i, w / tot)
 
 
 # ================================================================ Körper (Skin-Modifier)
@@ -721,6 +865,7 @@ extra.add(tv, tf, "Hoodie")
 extra.into_bmesh(bm, MAT_ORDER)
 fix_normals(bm)
 box_uv(bm)
+add_outline(bm, 0.0035)
 
 body = bpy.data.objects.new("Body", body_me)
 bm.to_mesh(body_me)
@@ -731,31 +876,40 @@ for m in MAT_ORDER:
 skin_weights(body, allowed=[n for n in SEG_NAMES if n != "Head"])
 bind(body)
 
-# Kopf-Objekt
-hm = bpy.data.meshes.new("Head")
-bmh = bmesh.new()
-head.into_bmesh(bmh, MAT_ORDER)
-fix_normals(bmh)
-box_uv(bmh, scale=4.0)
-bmh.to_mesh(hm)
-bmh.free()
-headobj = bpy.data.objects.new("Head", hm)
-bpy.context.scene.collection.objects.link(headobj)
-for m in MAT_ORDER:
-    hm.materials.append(MATS[m])
-vg = headobj.vertex_groups.new(name="Head")
-vg.add(list(range(len(hm.vertices))), 1.0, "REPLACE")
-bind(headobj)
 
-for o in (body, headobj):
+
+def make_part(name, B, outline_w):
+    me = bpy.data.meshes.new(name)
+    b = bmesh.new()
+    B.into_bmesh(b, MAT_ORDER)
+    fix_normals(b)
+    box_uv(b, scale=4.0)
+    src = add_outline(b, outline_w)
+    b.to_mesh(me)
+    b.free()
+    obj = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(obj)
+    for m in MAT_ORDER:
+        me.materials.append(MATS[m])
+    chain_weights(obj, B, src)
+    bind(obj)
+    return obj
+
+
+# Kopf (Gesicht, Ohren) und Haare als getrennte Meshes:
+# BONELAB blendet "Head Meshes" und "Hair Meshes" in der Ego-Perspektive aus.
+headobj = make_part("Head", head, 0.0022)
+hairobj = make_part("Hair", hair, 0.0025)
+
+for o in (body, headobj, hairobj):
     o.data.validate()
     o.data.update()
-
-print(f"Body: {len(body.data.polygons)} Flächen, Head: {len(hm.polygons)} Flächen")
+    o.data.calc_loop_triangles()
+    print(f"{o.name}: {len(o.data.loop_triangles)} Dreiecke")
 
 # ================================================================ Export
 bpy.ops.object.select_all(action="DESELECT")
-for o in (rig, body, headobj):
+for o in (rig, body, headobj, hairobj):
     o.select_set(True)
 bpy.context.view_layer.objects.active = rig
 fbx = os.path.join(OUT, "SternenElf.fbx")
@@ -768,7 +922,87 @@ print("FBX:", fbx)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, "SternenElf.blend"))
 
 # ================================================================ Vorschau
+TOON_L = Vector((0.35, -0.55, 0.75)).normalized()   # gleiche Lichtrichtung wie im Unity-Shader
+
+
+def toonify(m, shade, rim=(0.55, 1.0, 0.95), rim_str=0.35, em_str=0.0):
+    """Ersetzt das Material für die Vorschau durch eine Nachbildung des Unity-Toon-Shaders:
+    harte Licht/Schatten-Kante, farbiger Schatten, Randlicht, Leuchten."""
+    nt = m.node_tree
+    imgs = [n.image for n in nt.nodes if n.type == "TEX_IMAGE"]
+    base = [i for i in imgs if "emission" not in i.name][0]
+    emis = [i for i in imgs if "emission" in i.name]
+    nt.nodes.clear()
+    N = nt.nodes.new
+    L = nt.links.new
+    out = N("ShaderNodeOutputMaterial")
+    tex = N("ShaderNodeTexImage")
+    tex.image = base
+    geo = N("ShaderNodeNewGeometry")
+    dot = N("ShaderNodeVectorMath")
+    dot.operation = "DOT_PRODUCT"
+    dot.inputs[1].default_value = TOON_L
+    L(geo.outputs["Normal"], dot.inputs[0])
+    ramp = N("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].position = -0.12
+    ramp.color_ramp.elements[1].position = 0.02
+    ramp.color_ramp.interpolation = "EASE"
+    L(dot.outputs["Value"], ramp.inputs["Fac"])
+    shaded = N("ShaderNodeVectorMath")
+    shaded.operation = "MULTIPLY"
+    shaded.inputs[1].default_value = shade
+    L(tex.outputs["Color"], shaded.inputs[0])
+    diff = N("ShaderNodeVectorMath")
+    diff.operation = "SUBTRACT"
+    L(tex.outputs["Color"], diff.inputs[0])
+    L(shaded.outputs[0], diff.inputs[1])
+    sc_ = N("ShaderNodeVectorMath")
+    sc_.operation = "SCALE"
+    L(diff.outputs[0], sc_.inputs[0])
+    L(ramp.outputs["Color"], sc_.inputs["Scale"])
+    lit = N("ShaderNodeVectorMath")
+    lit.operation = "ADD"
+    L(shaded.outputs[0], lit.inputs[0])
+    L(sc_.outputs[0], lit.inputs[1])
+    lw = N("ShaderNodeLayerWeight")
+    lw.inputs["Blend"].default_value = 0.5
+    pw = N("ShaderNodeMath")
+    pw.operation = "POWER"
+    L(lw.outputs["Facing"], pw.inputs[0])
+    pw.inputs[1].default_value = 3.0
+    rs = N("ShaderNodeVectorMath")
+    rs.operation = "SCALE"
+    rs.inputs[0].default_value = Vector(rim) * rim_str
+    L(pw.outputs[0], rs.inputs["Scale"])
+    total = N("ShaderNodeVectorMath")
+    total.operation = "ADD"
+    L(lit.outputs[0], total.inputs[0])
+    L(rs.outputs[0], total.inputs[1])
+    if emis and em_str:
+        et = N("ShaderNodeTexImage")
+        et.image = emis[0]
+        es = N("ShaderNodeVectorMath")
+        es.operation = "SCALE"
+        es.inputs["Scale"].default_value = em_str
+        L(et.outputs["Color"], es.inputs[0])
+        t2 = N("ShaderNodeVectorMath")
+        t2.operation = "ADD"
+        L(total.outputs[0], t2.inputs[0])
+        L(es.outputs[0], t2.inputs[1])
+        total = t2
+    em = N("ShaderNodeEmission")
+    L(total.outputs[0], em.inputs["Color"])
+    L(em.outputs[0], out.inputs["Surface"])
+
+
 if RENDER:
+    TOON = {"Skin_Galaxy": ((0.55, 0.5, 0.85), 0.25, 0.5), "Eyes": ((0.8, 0.7, 0.6), 0.0, 0.6),
+            "Hair": ((0.45, 0.6, 0.85), 0.35, 0), "Hoodie": ((0.62, 0.78, 0.82), 0.25, 0),
+            "Hoodie_Trim": ((0.7, 0.75, 0.7), 0.2, 0), "Pants": ((0.6, 0.6, 0.8), 0.2, 0),
+            "Shoes": ((0.7, 0.8, 0.85), 0.2, 0), "Dark": ((1, 1, 1), 0.0, 0),
+            "Zipper": ((0.7, 0.8, 0.8), 0.1, 0)}
+    for name, (shade, rim_s, em_s) in TOON.items():
+        toonify(MATS[name], shade, rim_str=rim_s, em_str=em_s)
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
@@ -811,4 +1045,12 @@ if RENDER:
             mathutils.Matrix.Translation(-pb.head) @ pb.matrix
         bpy.context.view_layer.update()
     shot("preview_pose.png", (1.3, -3.4, 1.15), (0, 0, 0.92), 50, (900, 1000))
+    # Haar-Rig-Test: alle Haar- und Ohrketten biegen (wie bei Wind/Kopfbewegung)
+    for g, n in CHAIN_BONES.items():
+        for k in range(n):
+            pb = rig.pose.bones[chain_bone(g, k)]
+            pb.rotation_mode = "XYZ"
+            pb.rotation_euler = (0.28, 0.0, 0.18) if not g.startswith("Ear") else (0.35, 0, 0)
+    bpy.context.view_layer.update()
+    shot("preview_hair_rig.png", (0.55, -0.95, 1.68), (0, 0, 1.60), 50, (800, 800))
 print("Fertig.")

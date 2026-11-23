@@ -3,109 +3,156 @@
 Ein Custom-Avatar für BONELAB nach deinem Profilbild: Haut wie eine Galaxie, türkise, wilde
 Haare mit Antenne, lange Elfenohren, leuchtende goldene Sternenaugen, schiefes Lächeln mit zwei
 Kinn-Piercings und ein mintgrüner Hoodie mit offenem Reißverschluss.
+Im Anime-Look mit Konturlinien, harten Schatten und matten Haaren statt Plastik-Glanz.
 
-| Porträt | Pose-Test (Rig) | T-Pose |
-|---|---|---|
-| ![Porträt](export/preview_portrait.png) | ![Pose](export/preview_pose.png) | ![T-Pose](export/preview_full.png) |
+| Porträt | Haar-Rig-Test (Ketten gebogen) | Arme-Rig-Test | T-Pose |
+|---|---|---|---|
+| ![Porträt](export/preview_portrait.png) | ![Haar-Rig](export/preview_hair_rig.png) | ![Pose](export/preview_pose.png) | ![T-Pose](export/preview_full.png) |
+
+Die Vorschaubilder bildet Blender mit einer Nachbildung des Toon-Shaders nach. In Unity
+sieht es mit `SternenElf/Toon` sehr ähnlich aus, mit URP/Lit etwas realistischer.
 
 ## Was ist drin?
 
 | Datei | Inhalt |
 |---|---|
-| `export/SternenElf.fbx` | Fertiges Modell mit Skelett und eingebetteten Texturen, das du in Unity importierst |
-| `export/SternenElf.blend` | Dieselbe Szene für Blender, falls du etwas ändern willst |
+| `export/SternenElf.fbx` | Fertiges Modell mit Skelett, Haar-Rig und eingebetteten Texturen |
+| `export/SternenElf.blend` | Dieselbe Szene für Blender, zum Weiterbearbeiten |
 | `export/textures/` | Alle Texturen als PNG (Galaxie-Haut, Augen, Haare, Stoffe, dazu Emissions-Maps) |
-| `generate_avatar.py` | Skript, das alles oben neu erzeugt (Farben, Haare usw. lassen sich dort anpassen) |
+| `unity/Shaders/SternenElfToon.shader` | Anime-Toon-Shader für URP (BONELAB) |
+| `unity/Editor/SternenElfSetup.cs` | Unity-Helfer: richtet Import und Materialien ein und erstellt das Prefab |
+| `generate_avatar.py` | Skript, das alles oben neu erzeugt |
 
-Technische Daten:
+### Technische Daten
 
-- **Größe:** ca. 1,80 m (mit Antenne 1,93 m), T-Pose, Blickrichtung nach vorne
-- **Skelett:** 52 Knochen im Mixamo-Namensschema (`Hips`, `Spine`, `LeftArm`, `LeftHandIndex1` …),
-  mit Fingern, damit Unity es automatisch als **Humanoid** erkennt
-- **Zwei Meshes:** `Body` (Körper und Kleidung) und `Head` (Kopf, Gesicht, Ohren, Haare).
-  BONELAB blendet die Kopf-Meshes in der Ego-Perspektive aus, deshalb sind sie getrennt.
-- **Ca. 37.000 Dreiecke** zusammen. Für PC kein Problem. Für die Quest-Standalone-Version
-  ist das an der oberen Grenze, läuft aber in der Regel.
+- **Größe:** ca. 1,80 m (mit Antenne 1,93 m), T-Pose
+- **Körper-Skelett:** 52 Knochen im Mixamo-Namensschema mit Fingern, damit Unity es sofort als
+  **Humanoid** erkennt
+- **Haar-Rig:** 29 zusätzliche Knochen, alle Kinder von `Head`:
+
+  | Kette | Knochen | bewegt |
+  |---|---|---|
+  | `Hair_Ahoge_1–3` | 3 | die Antenne oben |
+  | `Hair_Bangs_L/C/R_1–2` | je 2 | Pony links, Mitte, rechts |
+  | `Hair_Front_L/R_1–3` | je 3 | die langen Strähnen vorne bis zur Brust |
+  | `Hair_Side_L/R/Back_1–2` | je 2 | die abstehenden Seitensträhnen |
+  | `Hair_Nape_L/R_1–2` | je 2 | Nackenhaare |
+  | `Ear_L/R_1–2` | je 2 | die Elfenohren (für Ohrenwackeln) |
+
+  Die Gewichte verlaufen weich entlang jeder Strähne: Die Wurzel sitzt fest am Kopf, zur
+  Spitze hin übernimmt Knochen für Knochen. Das Bild „Haar-Rig-Test“ zeigt alle Ketten gebogen.
+- **Drei Meshes:** `Body`, `Head` (Gesicht und Ohren) und `Hair`. BONELAB blendet Kopf und Haare
+  in der Ego-Perspektive aus, deshalb sind sie getrennt.
+- **Kontur (Inverted Hull):** In jedem Mesh steckt eine leicht vergrößerte Hülle mit umgedrehten
+  Flächen und dem Material `Outline`. Das funktioniert mit **jedem** Shader, auch mit URP/Lit.
+- **Dreiecke:** ca. 72.000 mit Kontur, ca. 37.000 ohne. Für PC passt beides. Für die Quest
+  empfehle ich die Variante ohne Kontur (siehe „Anpassen“).
+
+## Nicht plastikartig: welcher Shader?
+
+Die offizielle Marrow-SDK-Anleitung empfiehlt **Universal Render Pipeline/Lit** und warnt,
+dass Shader, die nicht zu URP passen, den Avatar unsichtbar machen können. Deshalb gibt es
+zwei Wege, und der Helfer fragt dich, welchen du willst:
+
+| | **SternenElf/Toon** (eigener Shader) | **URP/Lit** (offiziell empfohlen) |
+|---|---|---|
+| Look | Anime: harte Schattenkante, farbige Schatten, Randlicht, Glanzring im Haar, funkelnde Sterne auf der Haut | realistischer, aber matt eingestellt (niedrige Glätte) |
+| Licht | funktioniert auch in gebackenen Levels (Light Probes und feste Toon-Lichtrichtung) | normale BONELAB-Beleuchtung |
+| Risiko | in BONELAB nicht getestet, siehe unten | sicher |
+
+Der Toon-Shader ist ein reiner URP-Shader (HLSL mit den URP-Includes) und unterstützt
+Single-Pass-Stereo für VR auf PC und Quest. **Ich konnte ihn hier nicht in Unity oder BONELAB
+testen.** Falls der Avatar im Spiel unsichtbar ist oder rosa erscheint: Helfer erneut ausführen,
+„URP/Lit“ wählen und neu packen. Kontur und matte Haartextur bleiben auch dann erhalten.
+
+Die wichtigsten Regler im Toon-Material:
+
+- *Schattenfarbe* und *Schattengrenze* bestimmen, wie dunkel und farbig die Schattenseite ist.
+- *Randlicht* ist der helle Saum an den Kanten (wie im Bild der helle Rand an Haaren und Hoodie).
+- *Glanzring für Haare* nur beim Material `Hair`. *Verschiebung* schiebt den Ring hoch oder runter.
+- *Funkeln* nur bei `Skin_Galaxy`: Die Sterne auf der Haut pulsieren leicht.
+
+## Haarphysik: was geht, was nicht
+
+Das Haar ist fertig geriggt. Die Knochen und Gewichte stecken im Modell, du kannst die Strähnen
+in Unity oder Blender posieren und animieren.
+
+**Automatisch mitschwingen** tun die Haare in BONELAB aber nicht von allein. Die offizielle
+Avatar-Anleitung des Marrow SDK beschreibt keine Haar- oder Jiggle-Physik (es gibt nur
+Soft-Body-Regler für den Körper). Ich habe deshalb keine Physik-Bastellösung eingebaut, die im
+Spiel kaputtgehen könnte. Wenn es in der BONELAB-Community eine Jiggle-Lösung gibt, die du
+nutzen willst, sind die Ketten oben genau dafür vorbereitet: einfach die jeweils ersten Knochen
+(`Hair_*_1`, `Ear_*_1`) als Wurzel eintragen.
 
 ## In BONELAB bringen (Schritt für Schritt)
 
-### 1. Unity und das Marrow SDK einrichten
+### 1. Unity und Marrow SDK
 
-1. **Unity Hub** installieren und darüber die Unity-Version installieren, die das
-   **Marrow SDK** verlangt (steht in der Readme des SDK, bei BONELAB eine 2021.3-Version).
-   Wenn du auch für Quest bauen willst, beim Installieren **Android Build Support** mit anhaken.
-2. Das offizielle **Marrow SDK** von Stress Level Zero laden
-   (GitHub: `StressLevelZero/MarrowSDK`) und so installieren, wie es dort beschrieben ist.
-   Danach erscheint in Unity oben das Menü **Stress Level Zero**.
+1. **Unity Hub** installieren und darüber die Unity-Version, die das **Marrow SDK** verlangt
+   (steht in dessen Readme). Für Quest zusätzlich **Android Build Support** mit installieren.
+2. Das offizielle **Marrow SDK** von Stress Level Zero (GitHub: `StressLevelZero/MarrowSDK`)
+   so installieren, wie es dort beschrieben ist.
 
-### 2. Modell importieren
+### 2. Dateien in Unity kopieren
 
-1. Den Ordner `export/` (FBX und `textures/`) per Drag & Drop in den Unity-Ordner
-   `Assets/SternenElf/` ziehen.
-2. `SternenElf.fbx` anklicken, im Inspector:
-   - Reiter **Rig** → *Animation Type*: **Humanoid**, *Avatar Definition*: **Create From This
-     Model** → **Apply**. Mit **Configure…** kannst du prüfen, ob alle Knochen grün sind.
-     (Das sollten sie, weil die Namen dem Mixamo-Schema folgen.)
-   - Reiter **Materials** → **Extract Textures…** und danach **Extract Materials…** in
-     `Assets/SternenElf/` klicken.
+In deinem Unity-Projekt einen Ordner `Assets/SternenElf/` anlegen und hineinziehen:
 
-### 3. Materialien auf BONELAB-Shader umstellen
+- `export/SternenElf.fbx` und den Ordner `export/textures/` nach `Assets/SternenElf/`
+- den Ordner `unity/` nach `Assets/SternenElf/unity/`
+  (darin liegen der Shader und unter `Editor/` der Helfer)
 
-BONELAB nutzt eigene Shader. Für jedes der 9 Materialien den Shader auf
-**SLZ/LitMAS/LitMAS Opaque** stellen (oder einen Toon-Shader aus dem SDK, wenn du
-den Comic-Look möchtest) und als **Albedo** die gleichnamige Textur aus `textures/` setzen.
+### 3. Import und Materialien (automatisch)
 
-| Material | Albedo | Extra |
-|---|---|---|
-| `Skin_Galaxy` | `galaxy_skin.png` | Emission an → `galaxy_skin_emission.png` (die Sterne leuchten leicht) |
-| `Eyes` | `eyes.png` | Emission an → `eyes_emission.png`, Stärke ca. 2 (Sternenaugen glühen) |
-| `Hair` | `hair.png` | Glätte etwas hoch (glänzende Haare) |
-| `Hoodie`, `Hoodie_Trim`, `Pants`, `Shoes`, `Dark`, `Zipper` | gleichnamiges PNG | – |
+1. Im Project-Fenster `SternenElf.fbx` anklicken.
+2. Menü **Tools → Sternenelf → 1. Import + Materialien einrichten** und den Shader wählen.
 
-Tipp: Die Galaxie-Textur ist nahtlos kachelbar. Wenn dir die Sterne zu groß oder zu klein sind,
-ändere beim Material *Tiling* (z. B. 1,5 statt 1).
+Das stellt die Import-Einstellungen aus der Marrow-Anleitung ein (Humanoid, „Create From This
+Model“, Skin Weights „Standard (4 Bones)“, Strip Bones, Blend Shapes, Weld Vertices). Außerdem
+legt es unter `Assets/SternenElf/Materials/` alle Materialien mit den richtigen Texturen an:
+die Kontur als schwarzes URP/Unlit, die Augen leuchtend, die Haare matt.
 
-### 4. Avatar-Prefab bauen
+Danach im Reiter **Rig → Configure…** kurz prüfen, ob alle Knochen grün sind.
 
-1. `SternenElf.fbx` in die Szene ziehen (Position 0/0/0).
-2. Am obersten Objekt **Add Component → Avatar** (das Avatar-Script aus dem Marrow SDK).
-3. Im Avatar-Component:
-   - **Body Meshes:** `Body` eintragen
-   - **Head Meshes:** `Head` eintragen
-   - Die **Augenposition / Eye Center** auf die Höhe der Augen legen, ungefähr
-     **1,63 m** hoch und knapp vor dem Gesicht. In der Szene siehst du dafür ein Gizmo.
-   - Die Körpermaße berechnen lassen (Button im Avatar-Component, z. B. *Precompute* oder
-     *Calculate*, je nach SDK-Version). Daraus ergeben sich Gewicht, Kraft und Tempo im Spiel.
-4. Das Objekt in den Projektordner ziehen. So entsteht ein **Prefab**.
+<details><summary>Lieber von Hand?</summary>
 
-### 5. Als Mod packen
+- **Rig:** *Animation Type* **Humanoid**, *Avatar Definition* **Create From This Model**,
+  *Skin Weights* **Standard (4 Bones)**, *Strip Bones* an
+- **Model:** *Tangents* **Calculate Mikktspace** (braucht der Haarglanz)
+- **Materials:** pro Material den Shader auf `SternenElf/Toon` oder
+  `Universal Render Pipeline/Lit` stellen und die gleichnamige Textur aus `textures/` als
+  *Base Map* setzen. Bei URP/Lit die *Smoothness* auf etwa 0,15–0,3 stellen (das verhindert
+  den Plastik-Look). Bei `Eyes` und `Skin_Galaxy` *Emission* einschalten und die
+  `*_emission.png` eintragen.
+- **Outline:** `Universal Render Pipeline/Unlit`, Farbe fast schwarz.
 
-1. **Stress Level Zero → Void Tools → Pallet Center** (Name je nach SDK-Version leicht anders)
-   öffnen und eine neue **Pallet** anlegen, z. B. Autor = dein Name, Titel = „Sternenelf“.
-2. In der Pallet einen **Avatar Crate** anlegen und dein Prefab als *Main Asset* eintragen.
-3. **Pack for PC** (Windows) bzw. **Pack for Quest** (Android) klicken.
-4. Den fertigen Mod-Ordner aus dem `Built Mods`-Ordner deines Unity-Projekts kopieren nach:
-   - **PC:** `%USERPROFILE%\AppData\LocalLow\Stress Level Zero\BONELAB\Mods`
-   - **Quest:** `Android/data/com.StressLevelZero.BONELAB/files/Mods`
-     (per USB oder mit SideQuest)
+</details>
 
-Im Spiel findest du die Sternenelfe dann im **Body Mall** oder über das **Avatar-Menü** am
-Handgelenk.
+### 4. Prefab und Avatar-Script
+
+1. `SternenElf.fbx` auswählen, dann **Tools → Sternenelf → 2. Prefab mit EyeCenterOverride
+   erstellen**. Das legt das Prefab an und setzt `EyeCenterOverride` zwischen die Augen.
+   Das Modell hat keine Augenknochen, und laut Marrow-Anleitung braucht BONELAB dann diesen Punkt.
+2. Am Prefab **Add Component → Avatar** (das Avatar-Script aus dem Marrow SDK) und eintragen:
+   - **Body Meshes:** `Body`
+   - **Head Meshes:** `Head`
+   - **Hair Meshes:** `Hair`
+3. Mit **Edit Body** die Körper-Gizmos an das Mesh anpassen. Mit **Eye Offset** dafür sorgen,
+   dass der grüne Punkt (die Kamera) nicht im Kopf steckt.
+4. **Overrides → Apply All**. Der Crate nutzt das Prefab aus dem Project-Fenster, nicht das in
+   der Szene.
+
+### 5. Packen und installieren
+
+1. **Asset Warehouse** öffnen, eine **Pallet** anlegen, **Add Crate → Avatar Crate** und dein
+   Prefab eintragen.
+2. **Generate Packed Assets**, dann **Pack Pallet** (für PC bzw. Android/Quest).
+3. Den fertigen Ordner kopieren nach:
+   - **PC:** `C:\Users\<Name>\AppData\LocalLow\Stress Level Zero\BONELAB\Mods`
+   - **Quest:** `Android\data\com.StressLevelZero.BONELAB\files\Mods`
+4. Im Spiel eine Map außer dem Hauptmenü betreten, **B oder Y** halten, **Avatars** wählen,
+   und dort die Sternenelfe aussuchen.
 
 ## Anpassen
-
-Die Datei `generate_avatar.py` erzeugt alles neu. Interessante Stellen:
-
-| Was | Wo im Skript |
-|---|---|
-| Hoodie-, Hosen- und Schuhfarbe | `cloth_texture("hoodie", (0.62, 0.92, 0.78))` usw. (RGB von 0 bis 1) |
-| Haarfarbe | `hair_texture()` → `dark`, `mid`, `light` |
-| Galaxie-Farben, Anzahl der Sterne | `galaxy_texture()` |
-| Augenform, Iris und Stern | `lid_top`, `lid_bot`, `eye_texture()` |
-| Länge der Ohren | Abschnitt „Elfenohren“ (letzter Punkt = Ohrspitze) |
-| Pony, seitliche Strähnen, Antenne | Abschnitt „Haare“ |
-
-Neu erzeugen:
 
 ```bash
 # mit installiertem Blender (4.2 oder neuer)
@@ -116,12 +163,26 @@ pip install bpy
 python generate_avatar.py --out export
 ```
 
-Mit `--no-render` werden die Vorschaubilder übersprungen. Das ist deutlich schneller.
+| Option | Wirkung |
+|---|---|
+| `--no-outline` | ohne Konturhülle, halbiert die Dreiecke (empfohlen für Quest) |
+| `--no-render` | überspringt die Vorschaubilder, deutlich schneller |
+
+Stellen im Skript:
+
+| Was | Wo |
+|---|---|
+| Hoodie-, Hosen- und Schuhfarbe | `cloth_texture("hoodie", (0.62, 0.92, 0.78))` usw. (RGB von 0 bis 1) |
+| Haarfarbe, Strähnenlinien, Glanzring | `hair_texture()` |
+| Galaxie-Farben, Anzahl der Sterne | `galaxy_texture()` |
+| Augenform, Iris und Stern | `lid_top`, `lid_bot`, `eye_texture()` |
+| Konturdicke | `add_outline(bm, 0.0035)` (Körper) und `make_part(…, 0.0022/0.0025)` (Kopf, Haare) |
+| Haarketten (wie viele Knochen pro Strähnengruppe) | `CHAIN_BONES.update(...)` im Abschnitt „Haare“ |
+| Länge der Ohren | Abschnitt „Elfenohren“ (letzter Punkt = Ohrspitze) |
 
 ## Bekannte Grenzen
 
-- Das Modell ist komplett per Code gebaut, also stilisiert und nicht handmodelliert. Für mehr
-  Details (Gesichtsform, Hoodie-Falten) kannst du die `.blend` in Blender weiter bearbeiten.
-- Es gibt keine Blendshapes (Mimik oder Lippenbewegung). BONELAB braucht keine, aber das Gesicht
-  bleibt dadurch beim Lächeln.
-- Die Haare sind fest mit dem Kopf verbunden und haben keine Physik.
+- Das Modell ist komplett per Code gebaut, also stilisiert und nicht handmodelliert.
+- Es gibt keine Blendshapes (Mimik oder Lippenbewegung). BONELAB braucht keine.
+- Die Haare sind geriggt, schwingen in BONELAB aber nicht von allein mit (siehe „Haarphysik“).
+- Toon-Shader und Unity-Helfer wurden hier nicht in Unity oder BONELAB getestet.
