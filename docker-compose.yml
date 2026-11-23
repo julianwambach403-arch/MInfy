@@ -4,8 +4,12 @@ services:
     container_name: minfy-server
     restart: unless-stopped
     environment:
-      # API-Schlüssel für Claude Code (in einer .env-Datei neben dieser Datei eintragen:
-      # ANTHROPIC_API_KEY=sk-ant-...). Ohne Schlüssel gibt es einfache Ersatz-Fähigkeiten.
+      # Anmeldung für Claude Code mit deinem Claude-Abo: Token mit `claude setup-token`
+      # erzeugen und in eine .env-Datei neben dieser Datei eintragen:
+      #   CLAUDE_CODE_OAUTH_TOKEN=...
+      # (Alternativ ANTHROPIC_API_KEY, falls du einen API-Schlüssel hast.)
+      # Ohne Anmeldung gibt es einfache Ersatz-Fähigkeiten.
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     ports:
       - "7777:7777/udp"

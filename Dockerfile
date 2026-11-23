@@ -11,7 +11,7 @@ RUN apt-get update \
  && rm -rf /tmp/godot /tmp/godot.zip
 
 # Claude Code CLI: programmiert die eigenen Fähigkeiten für Erfolge.
-# Anmeldung per Umgebungsvariable ANTHROPIC_API_KEY (siehe docker-compose.yml).
+# Anmeldung mit Claude-Abo per CLAUDE_CODE_OAUTH_TOKEN (siehe docker-compose.yml).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nodejs npm \
  && npm install -g @anthropic-ai/claude-code \

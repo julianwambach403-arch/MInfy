@@ -98,17 +98,36 @@ Claude als Programmierer ist das aber in Ordnung.
 
 ### Claude Code auf dem Server einrichten
 
+**Du brauchst keinen API-Schlüssel.** Claude Code läuft mit deinem normalen Claude-Abo (Pro oder Max).
+
 1. [Node.js](https://nodejs.org) (Version 18 oder neuer) installieren.
 2. `npm install -g @anthropic-ai/claude-code`
-3. Einmal `claude` im Terminal starten und anmelden (Claude-Abo oder API-Schlüssel). Alternativ
-   die Umgebungsvariable `ANTHROPIC_API_KEY` setzen.
-4. Server wie gewohnt starten. Im Log steht `[Skill-Schmiede] Claude Code: an (claude)`.
+3. **Auf dem Server-PC einmal `claude` im Terminal starten** und dich mit deinem Claude-Konto anmelden
+   (es öffnet sich der Browser). Danach `/exit`. Die Anmeldung bleibt gespeichert.
+4. Kurz testen, ob es klappt: `claude -p "Sag Hallo"`. Wenn eine Antwort kommt, ist alles bereit.
+5. Server wie gewohnt starten, und zwar **mit demselben Benutzerkonto**, mit dem du dich angemeldet hast.
+   Im Log steht `[Skill-Schmiede] Claude Code: an (claude)`.
+
+Wer stattdessen einen API-Schlüssel hat, kann auch `ANTHROPIC_API_KEY` setzen. Nötig ist das nicht.
 
 Einstellungen stehen in `scripts/config.gd` (`CLAUDE_ENABLED`, `CLAUDE_COMMAND`, `CLAUDE_MODEL`).
 Startparameter: `--claude=/pfad/zu/claude` oder `--no-claude`. Ohne Claude gibt es für jeden Erfolg
 eine einfache Ersatz-Fähigkeit („Echo: …“).
-**Docker:** Lege neben `docker-compose.yml` eine Datei `.env` mit
-`ANTHROPIC_API_KEY=sk-ant-…` an. Claude Code ist im Image bereits installiert.
+**Docker (mit Claude-Abo):** Im Container kann sich Claude nicht per Browser anmelden. Deshalb erzeugst
+du einmalig auf deinem PC (dort, wo `claude` installiert und angemeldet ist) einen Anmelde-Token:
+
+```bash
+claude setup-token
+```
+
+Den angezeigten Token trägst du in eine Datei `.env` neben `docker-compose.yml` ein:
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=der-angezeigte-token
+```
+
+Danach `docker compose up -d --build`. Die `.env`-Datei ist in `.gitignore` eingetragen, damit der Token
+nicht versehentlich hochgeladen wird. Behandle ihn wie ein Passwort.
 
 Hinweis: Jeder generierte Skill ist ein Claude-Code-Aufruf und verbraucht Nutzung deines
 Claude-Abos bzw. API-Guthabens (bei 13 Erfolgen pro Spieler überschaubar).
