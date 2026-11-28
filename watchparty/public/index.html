@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MInfy Lounge</title>
+  <meta name="description" content="Mit Freunden in VR zusammen YouTube, Twitch und Videos schauen, Bildschirme teilen und zocken.">
+  <meta name="theme-color" content="#0b0c1a">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍿</text></svg>">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="css3d"></div>
+  <div id="stage"></div>
+
+  <!-- Startseite -->
+  <section id="lobby">
+    <div class="card lobby-card">
+      <div class="logo">🍿</div>
+      <h1>MInfy Lounge</h1>
+      <p class="sub">Zusammen YouTube, Twitch und Videos schauen, Bildschirme teilen und zocken: in VR oder am PC.</p>
+      <form id="join-form" autocomplete="off">
+        <label>Dein Name
+          <input id="in-name" maxlength="24" required placeholder="z. B. Julian">
+        </label>
+        <label>Raumcode
+          <span class="row">
+            <input id="in-room" maxlength="24" required placeholder="z. B. KINO1" style="text-transform:uppercase">
+            <button type="button" id="btn-newroom" class="ghost" title="Neuen Raumcode würfeln">🎲</button>
+          </span>
+        </label>
+        <div class="field-label">Deine Farbe</div>
+        <div id="colors" class="colors"></div>
+        <button type="submit" id="btn-join" class="primary big">Lounge betreten</button>
+        <p id="join-error" class="error" hidden></p>
+      </form>
+      <p class="hint">Gleicher Raumcode = gleicher Raum. Schick deinen Freunden einfach den Link.</p>
+    </div>
+  </section>
+
+  <!-- Oberfläche im Raum -->
+  <section id="hud" hidden>
+    <div class="top">
+      <div class="card room-card">
+        <div class="room-line">
+          <span>Raum <b id="room-code"></b></span>
+          <button id="btn-copy" class="ghost small" title="Einladungslink kopieren">🔗 Link</button>
+        </div>
+        <div id="people" class="people"></div>
+      </div>
+      <div class="card actions">
+        <button id="btn-mic" title="Mikrofon an/aus (M)">🎤</button>
+        <button id="btn-share" title="Bildschirm oder Fenster teilen">🖥️ Teilen</button>
+        <button id="btn-game" title="Spiel teilen: 60 FPS, flüssig statt gestochen scharf">🎮 Spiel teilen</button>
+        <button id="btn-stopshare" class="danger" hidden>⏹ Teilen beenden</button>
+        <button id="btn-vr" class="primary" hidden>🥽 VR starten</button>
+        <button id="btn-help" class="ghost" title="Hilfe">❔</button>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div id="sources" class="card sources" hidden></div>
+      <div class="card mediabar">
+        <form id="media-form" class="media-load" autocomplete="off">
+          <input id="in-url" placeholder="YouTube-, Twitch- oder Video-Link einfügen …">
+          <button type="submit" class="primary">▶ Abspielen</button>
+        </form>
+        <div id="media-now" class="media-now" hidden>
+          <div class="media-title"><span id="media-kind"></span> <b id="media-title"></b> <small id="media-by"></small></div>
+          <div class="media-controls">
+            <button id="btn-back" title="10 s zurück">⏪</button>
+            <button id="btn-play" title="Abspielen/Pause">⏯</button>
+            <button id="btn-fwd" title="10 s vor">⏩</button>
+            <span id="media-time" class="time">0:00</span>
+            <input id="seek" type="range" min="0" max="1000" value="0" title="Springen">
+            <button id="btn-stop" title="Video beenden">⏹</button>
+            <label class="vol" title="Lautstärke">🔊 <input id="volume" type="range" min="0" max="100" value="80"></label>
+            <button id="btn-relay" class="ghost small" title="Damit es Freunde in VR auf der Leinwand sehen">📡 VR-Relais</button>
+            <button id="btn-interact" class="ghost small" title="Direkt in den Player klicken (z. B. Ton einschalten)">🖱️ Player</button>
+          </div>
+          <div id="relay-info" class="relay-info" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="chat" class="card chat">
+      <div id="chat-log" class="chat-log"></div>
+      <div class="reactions">
+        <button data-react="👍">👍</button><button data-react="😂">😂</button><button data-react="😮">😮</button>
+        <button data-react="❤️">❤️</button><button data-react="🔥">🔥</button><button data-react="👏">👏</button>
+      </div>
+      <form id="chat-form" autocomplete="off"><input id="in-chat" maxlength="300" placeholder="Nachricht …"></form>
+    </div>
+
+    <button id="btn-unmute" class="primary unmute" hidden>🔈 Ton einschalten</button>
+    <div id="toasts" class="toasts"></div>
+  </section>
+
+  <section id="help" hidden>
+    <div class="card help-card">
+      <h2>So funktioniert's</h2>
+      <h3>Am PC oder im Quest-Browser (ohne VR)</h3>
+      <ul>
+        <li><b>Umschauen:</b> Maus gedrückt halten und ziehen. <b>Laufen:</b> W A S D oder Pfeiltasten.</li>
+        <li><b>Auf einen Bildschirm klicken</b> holt ihn auf die große Leinwand (für alle).</li>
+        <li><b>Link einfügen</b> (YouTube, Twitch-Kanal oder -Video, mp4/webm/m3u8) und „Abspielen“: läuft bei allen synchron.</li>
+        <li><b>🖥️ Teilen / 🎮 Spiel teilen:</b> zeigt dein Fenster oder deinen Bildschirm samt Ton für alle (nur am PC mit Chrome/Edge).
+          Mehrere können gleichzeitig teilen: Jeder Bildschirm bekommt eine eigene Leinwand.</li>
+        <li><b>M</b> schaltet dein Mikrofon stumm, <b>Enter</b> öffnet den Chat.</li>
+      </ul>
+      <h3>In VR (Meta Quest)</h3>
+      <ul>
+        <li><b>🥽 VR starten</b> drücken. <b>Linker Stick:</b> laufen. <b>Rechter Stick:</b> drehen.</li>
+        <li><b>Trigger</b> auf den Boden: teleportieren. Auf einen Bildschirm: auf die große Leinwand holen.</li>
+        <li><b>X oder A:</b> Menü öffnen (Mikrofon, Leinwand wählen, Pause, Lautstärke, Reaktionen). <b>Y:</b> Mikrofon stumm.</li>
+        <li><b>YouTube und Twitch in VR:</b> Browser lassen diese Player nicht in 3D-Welten zeichnen. Deshalb startet jemand am PC das
+          <b>📡 VR-Relais</b>, dann erscheint das Video in VR auf der Leinwand. Geteilte Bildschirme und direkte Video-Links gehen immer.</li>
+      </ul>
+      <button id="btn-help-close" class="primary">Alles klar</button>
+    </div>
+  </section>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

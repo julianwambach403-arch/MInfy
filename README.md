@@ -13,6 +13,9 @@ Euer Fortschritt wird auf **deinem eigenen Server** gespeichert.
 - **Grafik und Sound:** alles im einheitlichen Low-Poly-Stil direkt im Code erzeugt, ohne
   Lizenzprobleme und komplett kostenlos (siehe „Assets“ unten)
 
+> **Neu: 🍿 [MInfy Lounge](watchparty/README.md):** Eine VR-Lounge im Quest-Browser. Darin schaut ihr mit Freunden
+> zusammen YouTube, Twitch und Videos, teilt eure Bildschirme und zockt gemeinsam. Alles dazu steht im Ordner `watchparty/`.
+
 ---
 
 ## Inhalt des Spiels
