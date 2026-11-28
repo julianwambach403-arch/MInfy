@@ -13,6 +13,9 @@ Euer Fortschritt wird auf **deinem eigenen Server** gespeichert.
 - **Grafik und Sound:** alles im einheitlichen Low-Poly-Stil direkt im Code erzeugt, ohne
   Lizenzprobleme und komplett kostenlos (siehe „Assets“ unten)
 
+> **Neu: Manga-Leser für die Quest 3.** Im Ordner [`manga_reader/`](manga_reader/README.md) liegt eine
+> eigene VR-App, mit der du Manga wie echte Bücher liest, mit Handtracking zum Umblättern.
+
 ---
 
 ## Inhalt des Spiels

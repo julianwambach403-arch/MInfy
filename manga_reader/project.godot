@@ -1,0 +1,35 @@
+; Godot 4 Projektdatei – Manga-Leser für Meta Quest 3
+config_version=5
+
+[application]
+
+config/name="MInfy Manga VR"
+config/description="Manga wie echte Bücher lesen – Meta Quest 3 mit Handtracking"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.4", "Mobile")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[rendering]
+
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_3d=1
+textures/default_filters/anisotropic_filtering_level=3
+
+[xr]
+
+openxr/enabled=true
+openxr/reference_space=1
+openxr/environment_blend_mode=0
+openxr/foveation_level=1
+openxr/foveation_dynamic=true
+openxr/extensions/hand_tracking=true
+openxr/extensions/hand_tracking_unobstructed_data_source=true
+openxr/extensions/hand_tracking_controller_data_source=false
+openxr/extensions/hand_interaction_profile=true
+shaders/enabled=true
