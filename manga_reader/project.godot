@@ -7,6 +7,7 @@ config/name="MInfy Manga VR"
 config/description="Manga wie echte Bücher lesen – Meta Quest 3 mit Handtracking"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.4", "Mobile")
+config/icon="res://icon.png"
 
 [display]
 
@@ -33,3 +34,4 @@ openxr/extensions/hand_tracking_unobstructed_data_source=true
 openxr/extensions/hand_tracking_controller_data_source=false
 openxr/extensions/hand_interaction_profile=true
 shaders/enabled=true
+openxr/extensions/meta/passthrough=true
